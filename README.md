@@ -1,15 +1,35 @@
 # constitutional-agent-stack
 
-A constitutionally-governed multi-agent development organization built on
-Claude Code. A short body of written law ([`law/core.md`](law/core.md)) is
-compiled into per-role agent charters; executors do contracted work in
-isolated git worktrees; council lenses review plans before any executor
-spawns; adversarial refuters attack delivered work; observers grade runs
-from artifacts after the fact; an autonomous monarch ratifies or vetoes
-against a written vision; every governance act lands in an append-only
-ledger; and new machinery reaches production only through a canary rollout.
-The rules that matter are not prompts asking agents to behave — they are
-hooks and arithmetic that block the tool call.
+**A working constitutional government for AI agents, built on Claude Code.**
+
+A short body of written law ([`law/core.md`](law/core.md)) is compiled into
+per-role agent charters; executors do contracted work in isolated git
+worktrees; council lenses review plans before any executor spawns;
+adversarial refuters attack delivered work; observers grade runs from
+artifacts after the fact; an autonomous monarch ratifies or vetoes against a
+written vision; every governance act lands in an append-only ledger; and new
+machinery reaches production only through a canary rollout. The rules that
+matter are not prompts asking agents to behave — they are hooks and
+arithmetic that block the tool call.
+
+```
+contract → panel review → executors ∥ blind test-engineer → refuter
+        → integrator → grievance window → observers → motions → vote
+        → monarch ratification → leak-lint → canary → production
+```
+
+## By the numbers
+
+| | |
+|---|---|
+| Articles of law | 5 (evidence, communication, memory, governance, death) |
+| Charters | 4 ranks, one compiler, zero hand-edited definitions |
+| Compiled agent definitions | 12 (the monarch is handwritten; the chair is the live session) |
+| Enforcement hooks | ~15 — spawn-guard, ledger-guard, law injection, telemetry |
+| Gate fixtures on the machinery | 309 passing in this export |
+| CLI test suite | 158/158 |
+| Reproducibility | law + templates recompile **byte-identical** to `agents/` |
+| Production mileage | 12+ governed runs, 160+ ledger entries at export time |
 
 ## Why
 
@@ -114,6 +134,19 @@ retaliation flagging, the law compiler). [`tools/vaultctl/`](tools/vaultctl/)
 is a stdlib-only Python CLI for operating the vault (status, index
 regeneration, run history).
 
+## Measurement and Goodhart
+
+Observers grade runs partly on *shadow dimensions* — metrics the lower ranks
+are never told about, precisely so they cannot be gamed
+([`tools/stack-tools/leak-linter.js`](tools/stack-tools/leak-linter.js)
+exists to catch machinery that would reveal them). Publishing this repo
+necessarily publishes the export-time dimension set and the beacon's health
+arithmetic. That is a deliberate trade: the published set should be treated
+as burned, and any production instance — including the one this was
+extracted from — should rotate its own. If your oversight scheme stops
+working the moment its metrics are known, that is a finding about the
+scheme; rotation is the mitigation this design chooses.
+
 ## What's here vs what stays private
 
 Public — the machinery:
@@ -193,3 +226,10 @@ transfer.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+Built and daily-driven by [Jonathan Kozlik](https://app.selfsell.ai) —
+[github.com/jmkozlik](https://github.com/jmkozlik) ·
+[X @D1_Founder](https://x.com/D1_Founder). Writeup with production ledger
+statistics forthcoming.
