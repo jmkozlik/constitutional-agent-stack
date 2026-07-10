@@ -231,5 +231,5 @@ MIT — see [LICENSE](LICENSE).
 
 Built and daily-driven by [Jonathan Kozlik](https://app.selfsell.ai) —
 [github.com/jmkozlik](https://github.com/jmkozlik) ·
-[X @D1_Founder](https://x.com/D1_Founder). Writeup with production ledger
+[X @jmkozlik](https://x.com/jmkozlik). Writeup with production ledger
 statistics forthcoming.
