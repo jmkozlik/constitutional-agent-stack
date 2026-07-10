@@ -1,0 +1,13 @@
+{
+  "stack-behavior-analyst": "observer",
+  "stack-context-builder": "none",
+  "stack-efficiency-analyst": "observer",
+  "stack-implementer": "executor",
+  "stack-integrator": "executor",
+  "stack-lens-advocate": "council",
+  "stack-lens-evidence-skeptic": "council",
+  "stack-lens-system-conservative": "council",
+  "stack-refuter": "none",
+  "stack-test-engineer": "executor",
+  "stack-wildcard": "council"
+}
