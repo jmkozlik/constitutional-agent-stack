@@ -30,7 +30,10 @@ def _param(arg: ast.arg, has_default: bool) -> str:
 
 def _sig_canonical(node: ast.AST) -> str:
     # Identity covers: name, parameter names, parameter annotations, defaults
-    # PRESENCE (not values), return annotation. Nothing else (brief §1).
+    # PRESENCE (not values), return annotation (brief §1). Documented
+    # deviation (plan A11): positional-only "/", bare "*" and */** markers are
+    # included too — f(a, b) -> f(a, *, b) breaks call sites and must not
+    # classify as merely "moved".
     if isinstance(node, ast.ClassDef):
         # Class analog: bases and keywords (metaclass) are its "parameters" —
         # changing a base changes what callers get, so it is signature-level.
@@ -135,6 +138,12 @@ def _visit(node: ast.AST, prefix: str, rel_path: str, records: list[dict]) -> No
                     "signature": _signature_display(child),
                     "sig_hash": _hash(_sig_canonical(child)),
                     "body_hash": _body_hash(child),
+                    # Not part of the brief's identity triple; lets `affected`
+                    # surface decorator-only edits that both hashes are blind
+                    # to (plan amendment A9).
+                    "decor_hash": _hash(
+                        "\n".join(ast.unparse(d) for d in child.decorator_list)
+                    ),
                     "parent": prefix,
                 }
             )

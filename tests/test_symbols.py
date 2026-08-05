@@ -107,6 +107,33 @@ def test_class_sig_hash_covers_bases():
     assert a["src.config.C"]["sig_hash"] != b["src.config.C"]["sig_hash"]
 
 
+def test_decor_hash_tracks_decorator_changes_only():
+    a = syms("@retry(attempts=3)\ndef f(x):\n    return 1\n")
+    b = syms("@retry(attempts=5)\ndef f(x):\n    return 1\n")
+    c = syms("@retry(attempts=3)\ndef f(x):\n    return 1\n")
+    assert a["src.config.f"]["decor_hash"] != b["src.config.f"]["decor_hash"]
+    assert a["src.config.f"]["decor_hash"] == c["src.config.f"]["decor_hash"]
+    assert a["src.config.f"]["sig_hash"] == b["src.config.f"]["sig_hash"]
+    assert a["src.config.f"]["body_hash"] == b["src.config.f"]["body_hash"]
+
+
+def test_duplicate_paths_both_kept():
+    records = extract_symbols(
+        (
+            "class C:\n"
+            "    @property\n"
+            "    def value(self):\n"
+            "        return self._v\n"
+            "    @value.setter\n"
+            "    def value(self, v):\n"
+            "        self._v = v\n"
+        ).encode(),
+        "src/config.py",
+    )
+    values = [r for r in records if r["path"] == "src.config.C.value"]
+    assert len(values) == 2
+
+
 def test_parse_failure_raises():
     with pytest.raises(ParseFailure):
         extract_symbols(b"def broken(:\n", "src/bad.py")
