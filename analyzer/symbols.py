@@ -114,6 +114,10 @@ def extract_symbols(source: bytes, rel_path: str) -> list[dict]:
         tree = ast.parse(source)
     except (SyntaxError, ValueError) as e:
         raise ParseFailure(rel_path, e) from e
+    return extract_from_tree(tree, rel_path)
+
+
+def extract_from_tree(tree: ast.Module, rel_path: str) -> list[dict]:
     records: list[dict] = []
     # TODO(brief open question): module-level constants are not indexed as
     # symbols; only def/async def/class produce records.
