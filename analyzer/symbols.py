@@ -140,6 +140,7 @@ def _visit(node: ast.AST, prefix: str, rel_path: str, records: list[dict]) -> No
                     "start_line": start,
                     "end_line": child.end_lineno,
                     "signature": _signature_display(child),
+                    "doc": ast.get_docstring(child),
                     "sig_hash": _hash(_sig_canonical(child)),
                     "body_hash": _body_hash(child),
                     # Not part of the brief's identity triple; lets `affected`

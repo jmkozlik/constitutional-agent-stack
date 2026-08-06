@@ -107,6 +107,16 @@ def test_class_sig_hash_covers_bases():
     assert a["src.config.C"]["sig_hash"] != b["src.config.C"]["sig_hash"]
 
 
+def test_docstring_recorded():
+    s = syms('def f():\n    """Load the thing.\n\n    Returns a dict."""\n')
+    assert s["src.config.f"]["doc"] == "Load the thing.\n\nReturns a dict."
+
+
+def test_no_docstring_is_null():
+    s = syms("def f():\n    return 1\n")
+    assert s["src.config.f"]["doc"] is None
+
+
 def test_decor_hash_tracks_decorator_changes_only():
     a = syms("@retry(attempts=3)\ndef f(x):\n    return 1\n")
     b = syms("@retry(attempts=5)\ndef f(x):\n    return 1\n")

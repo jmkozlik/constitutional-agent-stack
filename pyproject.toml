@@ -6,7 +6,8 @@ requires-python = ">=3.11"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest"]
+harness = ["pyyaml"]
+dev = ["pytest", "pyyaml"]
 
 [project.scripts]
 analyzer = "analyzer.cli:main"
@@ -16,7 +17,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["analyzer"]
+packages = ["analyzer", "harness"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

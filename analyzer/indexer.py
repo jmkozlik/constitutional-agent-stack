@@ -43,6 +43,29 @@ def _worktree_files(root: Path) -> list[str]:
 
 
 def build_index(repo: str | Path, commit: str | None) -> dict:
+    """Index a repo (working tree, or a commit's blobs when `commit` is set).
+
+    Returns the index dict, serialized 1:1 into index.json:
+      version: 1
+      commit:  full sha, or None for a working-tree index
+      files:   every indexed .py path, sorted, repo-relative
+      symbols: one record per definition, sorted by
+               (path, file, start_line, sig_hash, body_hash):
+               path (dotted), kind (function|async_function|class), file,
+               start_line/end_line (decorators included), signature (display
+               string), doc (docstring or null), sig_hash (name+params+
+               annotations+defaults-presence+return), body_hash (unparsed
+               body), decor_hash, parent (enclosing scope's dotted path),
+               confidence ("low" iff the file has any unresolved record),
+               referenced_by (sites: file, line, in_symbol, kind call|name,
+               args as written for calls, ambiguous+note when inexact).
+               Duplicate dotted paths are legal (property pairs, conditional
+               defs); records sharing a path share their referenced_by.
+      unresolved: sites whose target is statically undecidable — file, line,
+               in_symbol, reason (subscript_call | getattr_call |
+               attribute_of_call | star_import | dynamic_attribute |
+               parse_error | unresolved_import_target), expression.
+    """
     root = Path(repo)
     read_failures: list[tuple[str, str]] = []
     if commit is not None:
