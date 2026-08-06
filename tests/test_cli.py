@@ -57,3 +57,33 @@ def test_unresolved_lists_records(tmp_path):
 def test_index_missing_repo_errors(tmp_path):
     result = run_cli("index", str(tmp_path / "nope"), cwd=tmp_path)
     assert result.returncode == 1
+
+
+def test_corrupt_index_clean_error(tmp_path):
+    (tmp_path / "corrupt.json").write_text("{ this is not json\n")
+    for cmd in (["symbol", "foo"], ["unresolved"]):
+        result = run_cli(*cmd, "--index", "corrupt.json", cwd=tmp_path)
+        assert result.returncode == 1
+        assert "analyzer:" in result.stderr
+        assert "Traceback" not in result.stderr
+
+
+def test_wrong_shape_index_clean_error(tmp_path):
+    (tmp_path / "shape.json").write_text('{"symbols": []}\n')
+    result = run_cli("unresolved", "--index", "shape.json", cwd=tmp_path)
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+
+
+def test_index_output_into_missing_dir_clean_error(tmp_path):
+    repo = make_repo(tmp_path, PROJECT)
+    result = run_cli("index", str(repo), "-o", "/no/such/dir/out.json", cwd=repo)
+    assert result.returncode == 1
+    assert "analyzer:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_index_flag_pointing_at_directory_clean_error(tmp_path):
+    result = run_cli("symbol", "foo", "--index", ".", cwd=tmp_path)
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr

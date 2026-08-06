@@ -74,6 +74,26 @@ def test_class_dunder_getattr_flagged():
     assert rec["reason"] == "dynamic_attribute"
 
 
+def test_assignment_form_module_getattr_flagged():
+    (rec,) = unresolved_in(
+        "def _dyn(name):\n    raise AttributeError(name)\n\n__getattr__ = _dyn\n"
+    )
+    assert rec["reason"] == "dynamic_attribute"
+    assert rec["line"] == 4
+
+
+def test_assignment_form_class_getattr_flagged():
+    (rec,) = unresolved_in("class Proxy:\n    __getattr__ = None\n")
+    assert rec["reason"] == "dynamic_attribute"
+
+
+def test_function_local_getattr_assignment_not_flagged():
+    records = unresolved_in(
+        "def f():\n    __getattr__ = 1\n    return __getattr__\n"
+    )
+    assert records == []
+
+
 def test_ordinary_chained_stdlib_call_not_flagged():
     assert unresolved_in("def go(p):\n    return open(p).read()\n") == []
 

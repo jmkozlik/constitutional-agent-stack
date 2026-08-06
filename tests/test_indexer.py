@@ -88,6 +88,17 @@ def test_parse_error_flagged_not_fatal(tmp_path):
     assert symbols["src.config.load_settings"][0]["confidence"] == "high"
 
 
+def test_recursion_bomb_degrades_to_parse_error(tmp_path):
+    deep = "def deep():\n    return " + "1+" * 20000 + "1\n"
+    repo = make_repo(tmp_path, {**PROJECT, "src/deep.py": deep})
+    index = build_index(repo, None)
+    assert any(
+        u["reason"] == "parse_error" and u["file"] == "src/deep.py"
+        for u in index["unresolved"]
+    )
+    assert "src.config.load_settings" in by_path(index)
+
+
 def test_duplicate_paths_share_referenced_by(tmp_path):
     repo = make_repo(
         tmp_path,

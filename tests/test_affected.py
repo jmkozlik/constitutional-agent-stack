@@ -196,6 +196,36 @@ def test_property_getter_body_edit_not_masked_by_setter(tmp_path):
     assert rows_by_path(report)["src.c.C.value"].category == "body"
 
 
+def test_new_rev_parse_failure_reports_unknown_not_deleted(tmp_path):
+    repo = make_repo(tmp_path, {"mod.py": "def solo():\n    return None\n"})
+    old = git(repo, "rev-parse", "HEAD")
+    new = commit_all(
+        repo, {"mod.py": "def solo():\n    return None\n\ndef broken(:\n"}
+    )
+    report = compute_affected(repo, old, new)
+    row = rows_by_path(report)["mod.solo"]
+    assert row.category == "unknown"
+    assert "parse" in row.detail
+    assert not report.has_error
+
+
+def test_new_rev_parse_failure_with_callers_is_error(tmp_path):
+    repo = make_repo(
+        tmp_path,
+        {
+            "mod.py": "def solo():\n    return None\n",
+            "use.py": "from mod import solo\ndef go():\n    return solo()\n",
+        },
+    )
+    old = git(repo, "rev-parse", "HEAD")
+    new = commit_all(
+        repo, {"mod.py": "def solo():\n    return None\n\ndef broken(:\n"}
+    )
+    report = compute_affected(repo, old, new)
+    assert rows_by_path(report)["mod.solo"].category == "unknown"
+    assert report.has_error
+
+
 def test_cli_output_shape(tmp_path):
     repo, old, new = edit(
         tmp_path,

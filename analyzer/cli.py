@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from analyzer.gitio import GitError
-from analyzer.indexer import build_index, load_index, serialize
+from analyzer.indexer import IndexLoadError, build_index, load_index, serialize
 
 
 def _cmd_index(args) -> int:
@@ -14,7 +14,11 @@ def _cmd_index(args) -> int:
     except (GitError, FileNotFoundError) as exc:
         print(f"analyzer: {exc}", file=sys.stderr)
         return 1
-    Path(args.output).write_text(serialize(index), encoding="utf-8")
+    try:
+        Path(args.output).write_text(serialize(index), encoding="utf-8")
+    except OSError as exc:
+        print(f"analyzer: cannot write {args.output!r}: {exc}", file=sys.stderr)
+        return 1
     print(
         f"indexed {len(index['symbols'])} symbols, "
         f"{len(index['unresolved'])} unresolved sites -> {args.output}"
@@ -30,6 +34,9 @@ def _load(args) -> dict | None:
             f"analyzer: index file {args.index!r} not found (run `analyzer index` first)",
             file=sys.stderr,
         )
+        return None
+    except IndexLoadError as exc:
+        print(f"analyzer: {exc}", file=sys.stderr)
         return None
 
 

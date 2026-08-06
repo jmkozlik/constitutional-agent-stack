@@ -87,11 +87,38 @@ def compute_affected(repo, old_rev: str, new_rev: str) -> AffectedReport:
         if any(r["file"] in changed for r in records)
     }
 
+    # A changed file that fails to parse at one rev makes its symbols'
+    # ground truth unknowable — classify as `unknown`, never as a
+    # definitive deleted/added (flag, don't guess).
+    old_bad = {
+        u["file"] for u in old_index["unresolved"] if u["reason"] == "parse_error"
+    } & changed
+    new_bad = {
+        u["file"] for u in new_index["unresolved"] if u["reason"] == "parse_error"
+    } & changed
+
     rows = []
     for path in sorted(candidates):
         olds = old_records.get(path, [])
         news = new_records.get(path, [])
         callers = olds[0]["referenced_by"] if olds else []
+        files = {r["file"] for r in olds + news}
+        if files & new_bad:
+            rows.append(
+                Row(
+                    path,
+                    "unknown",
+                    "file does not parse at new rev; assume affected",
+                    callers=callers,
+                    error=bool(callers),
+                )
+            )
+            continue
+        if files & old_bad:
+            rows.append(
+                Row(path, "unknown", "file does not parse at old rev; assume affected")
+            )
+            continue
         if not olds:
             rows.append(Row(path, "added", "new symbol"))
         elif not news:

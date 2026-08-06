@@ -444,14 +444,88 @@ def test_src_layout_suffix_match():
     assert call_sites[0]["ambiguous"] is True
 
 
-def test_internal_looking_import_miss_is_flagged():
+def test_star_facade_import_miss_is_flagged():
     _, unresolved = build(
         {
-            "src/mypkg/config.py": "def load_settings(path):\n    return {}\n",
-            "tools/run.py": "from mypkg.config import does_not_exist\n",
+            "pkg/__init__.py": "from .core import *\n",
+            "pkg/core.py": "def engine():\n    return 1\n",
+            "src/app.py": "from pkg import engine\n",
         }
     )
-    assert any(u["reason"] == "unresolved_import_target" for u in unresolved)
+    assert any(
+        u["reason"] == "unresolved_import_target" and u["file"] == "src/app.py"
+        for u in unresolved
+    )
+
+
+def test_constant_import_from_clean_module_not_flagged():
+    _, unresolved = build(
+        {
+            "src/mypkg/config.py": (
+                "DEFAULTS = {}\n"
+                "def load_settings(path):\n"
+                "    return DEFAULTS\n"
+            ),
+            "tools/run.py": "from mypkg.config import DEFAULTS\n",
+        }
+    )
+    assert unresolved == []
+
+
+def test_comprehension_outermost_iterable_resolves_in_enclosing_scope():
+    refs, _ = build(
+        {
+            "src/mod_a.py": "def setup():\n    return 'a'\n",
+            "src/shadow.py": (
+                "from src.mod_a import setup\n"
+                "\n"
+                "def comp_iter_ref():\n"
+                "    return [setup for setup in setup()]\n"
+            ),
+        }
+    )
+    call_sites = [r for r in refs["src.mod_a.setup"] if r["kind"] == "call"]
+    assert len(call_sites) == 1
+    assert call_sites[0]["line"] == 4
+
+
+def test_class_body_comprehension_references_methods():
+    refs, _ = build(
+        {
+            "src/d.py": (
+                "class Dispatch:\n"
+                "    def handle_a(self):\n"
+                "        return 'a'\n"
+                "    def handle_b(self):\n"
+                "        return 'b'\n"
+                "    table = [m for m in (handle_a, handle_b)]\n"
+            ),
+        }
+    )
+    assert any(r["line"] == 6 for r in refs["src.d.Dispatch.handle_a"])
+    assert any(r["line"] == 6 for r in refs["src.d.Dispatch.handle_b"])
+
+
+def test_import_or_def_fallback_keeps_both_candidates():
+    refs, _ = build(
+        {
+            "src/mod_a.py": "def helper():\n    return 'h'\n",
+            "src/defimport.py": (
+                "try:\n"
+                "    from src.mod_a import helper\n"
+                "except ImportError:\n"
+                "    def helper():\n"
+                "        return None\n"
+                "\n"
+                "def run():\n"
+                "    return helper()\n"
+            ),
+        }
+    )
+    imported = [r for r in refs["src.mod_a.helper"] if r["kind"] == "call"]
+    local = [r for r in refs["src.defimport.helper"] if r["kind"] == "call"]
+    assert len(imported) == 1 and imported[0]["ambiguous"] is True
+    assert len(local) == 1 and local[0]["ambiguous"] is True
 
 
 def test_external_import_miss_is_silent():

@@ -281,18 +281,38 @@ class _Frame:
         self.base_paths: list[str] = []
 
     def bind(self, name: str, origin: str, payload=None) -> None:
-        # def > import > opaque: prefer resolvable origins so that a
-        # module-level `f = wrap(f)` next to `def f` over-reports rather
-        # than silencing the def.
-        rank = {"def": 2, "import": 1, "opaque": 0}
+        # Resolvable origins (def/import) beat opaque, so a module-level
+        # `f = wrap(f)` next to `def f` over-reports rather than silencing
+        # the def. A name bound by BOTH an import and a def (try/except
+        # import-or-define fallback) keeps both candidates — at runtime
+        # either could win, so dropping one silences a real edge.
         current = self.bindings.get(name)
-        if current is None or rank[origin] >= rank[current[0]]:
-            if current is not None and current[0] == "import" and origin == "import":
-                payload = tuple(dict.fromkeys(current[1] + payload))
+        if current is None or current[0] == "opaque":
+            if current is not None and origin == "opaque":
+                return
             self.bindings[name] = (origin, payload)
+            return
+        if origin == "opaque":
+            return
+        cur_origin, cur_payload = current
+        if cur_origin == "import" and origin == "import":
+            self.bindings[name] = (
+                "import", tuple(dict.fromkeys(cur_payload + payload))
+            )
+        elif {cur_origin, origin} == {"def", "import"}:
+            def_path = payload if origin == "def" else cur_payload
+            imports = payload if origin == "import" else cur_payload
+            self.bindings[name] = ("both", (def_path, imports))
+        elif cur_origin == "both" and origin == "import":
+            def_path, imports = cur_payload
+            self.bindings[name] = (
+                "both", (def_path, tuple(dict.fromkeys(imports + payload)))
+            )
+        # both+def and def+def keep the existing binding (same dotted path).
 
 
 _AMBIG_RECEIVER = "attribute name match; receiver not statically resolvable"
+_BOTH_NOTE = "name bound by both an import and a local definition"
 
 
 class _Walker:
@@ -426,6 +446,14 @@ class _Walker:
             path = binding[1]
             return [(path, None)] if path in self.resolver.symbols else []
         results: list[tuple[str, str | None]] = []
+        if binding[0] == "both":
+            def_path, targets = binding[1]
+            if def_path in self.resolver.symbols:
+                results.append((def_path, _BOTH_NOTE))
+            for target in targets:
+                for path, note in self.resolver.resolve_dotted(target):
+                    results.append((path, note or _BOTH_NOTE))
+            return _dedupe_resolutions(results)
         multi = len(binding[1]) > 1
         for target in binding[1]:
             for path, note in self.resolver.resolve_dotted(target):
@@ -453,6 +481,9 @@ class _Walker:
             results: list[tuple[str, str | None]] = []
             if base_binding[0] == "def":
                 bases = [(base_binding[1], None)]
+            elif base_binding[0] == "both":
+                def_path, targets = base_binding[1]
+                bases = [(def_path, _BOTH_NOTE)] + [(t, _BOTH_NOTE) for t in targets]
             else:
                 bases = [(t, None) for t in base_binding[1]]
             for base, base_note in bases:
@@ -515,16 +546,21 @@ class _Walker:
             # (import targets may point outside the symbol table).
             emitted = False
             binding = self._lookup(cur.id)
-            base_dotted: list[str] = []
+            base_pairs: list[tuple[str, str | None]] = []
             if binding[0] == "def":
-                base_dotted = [binding[1]]
+                base_pairs = [(binding[1], None)]
             elif binding[0] == "import":
-                base_dotted = list(binding[1])
-            for base in base_dotted:
+                base_pairs = [(t, None) for t in binding[1]]
+            elif binding[0] == "both":
+                def_path, targets = binding[1]
+                base_pairs = [(def_path, _BOTH_NOTE)] + [
+                    (t, _BOTH_NOTE) for t in targets
+                ]
+            for base, base_note in base_pairs:
                 for path, note in self.resolver.resolve_dotted(
                     ".".join([base] + parts)
                 ):
-                    self._record(site, path, kind, note, args)
+                    self._record(site, path, kind, note or base_note, args)
                     emitted = True
             if not emitted:
                 self._fallback(site, terminal, kind, args, _AMBIG_RECEIVER)
@@ -662,6 +698,11 @@ class _Walker:
         self.frames.pop()
 
     def _visit_comprehension_scope(self, node) -> None:
+        # Python evaluates the OUTERMOST iterable in the enclosing scope —
+        # `[setup for setup in setup()]` calls the enclosing `setup`, and a
+        # class-body comprehension's first iterable can see class attributes.
+        first = node.generators[0]
+        self.visit(first.iter)
         frame = _Frame("comprehension")
         for gen in node.generators:
             names: set[str] = set()
@@ -669,8 +710,16 @@ class _Walker:
             for name in names:
                 frame.bind(name, "opaque")
         self.frames.append(frame)
-        for child in ast.iter_child_nodes(node):
-            self.visit(child)
+        for gen in node.generators:
+            if gen is not first:
+                self.visit(gen.iter)
+            for cond in gen.ifs:
+                self.visit(cond)
+        if isinstance(node, ast.DictComp):
+            self.visit(node.key)
+            self.visit(node.value)
+        else:
+            self.visit(node.elt)
         self.frames.pop()
 
     _visit_ListComp = _visit_comprehension_scope
@@ -680,6 +729,18 @@ class _Walker:
 
     def _visit_Import(self, node: ast.Import) -> None:
         pass  # module objects are not symbols; uses are resolved at use sites
+
+    def _visit_Assign(self, node: ast.Assign) -> None:
+        # PEP 562: `__getattr__ = fn` at module (or class) level defines
+        # dynamic attribute access just as `def __getattr__` does.
+        if self.frames[-1].kind in ("module", "class"):
+            names: set[str] = set()
+            for target in node.targets:
+                _target_names(target, names)
+            for name in sorted(names & _DYNAMIC_DUNDERS):
+                self._flag(node, "dynamic_attribute")
+        for child in ast.iter_child_nodes(node):
+            self.visit(child)
 
     def _visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if any(alias.name == "*" for alias in node.names):
@@ -693,10 +754,20 @@ class _Walker:
             hits = self.resolver.resolve_dotted(target)
             for path, note in hits:
                 self._record(node, path, "name", note)
-            if not hits and base and self.resolver.module_anchor_exists(base):
-                # The module is ours but the name resolves nowhere: flag it
-                # rather than silently dropping a possible in-repo edge.
-                self._flag(node, "unresolved_import_target")
+            if not hits and base:
+                # The name resolves nowhere. If the source module is ours,
+                # parsed clean, and star-free, every def it contains is in
+                # the symbol table — so this import is provably not a def
+                # edge (a constant or variable; indexing those is a brief
+                # open question) and stays silent. Only a star import can
+                # hide a def from us, so that case is flagged.
+                anchors = [
+                    m
+                    for m in self.resolver.modules
+                    if m == base or m.endswith("." + base)
+                ]
+                if any(self.resolver.tables[m].has_star for m in anchors):
+                    self._flag(node, "unresolved_import_target")
 
     def _visit_Call(self, node: ast.Call) -> None:
         func = node.func

@@ -4,6 +4,7 @@ emit a deterministic index dict / JSON document."""
 import ast
 import json
 import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -73,22 +74,29 @@ def build_index(repo: str | Path, commit: str | None) -> dict:
         }
         for rel, message in read_failures
     ]
+    # Deep-but-legal trees (chained binops in generated code) can exceed the
+    # default recursion limit inside ast.unparse or the walkers; give
+    # headroom and degrade any remaining blowup to a per-file flag.
+    sys.setrecursionlimit(max(sys.getrecursionlimit(), 10_000))
     for rel in files:
         mod = module_path(rel)
         try:
             tree = ast.parse(blobs[rel])
-        except (SyntaxError, ValueError) as exc:
+            records = extract_from_tree(tree, rel)
+        except (SyntaxError, ValueError, RecursionError) as exc:
             unresolved.append(
                 {
                     "file": rel,
                     "line": 1,
                     "in_symbol": mod,
                     "reason": "parse_error",
-                    "expression": str(exc),
+                    "expression": "recursion limit exceeded while analyzing"
+                    if isinstance(exc, RecursionError)
+                    else str(exc),
                 }
             )
             continue
-        for record in extract_from_tree(tree, rel):
+        for record in records:
             symbols_by_path[record["path"]].append(record)
         trees[rel] = (tree, mod)
 
@@ -101,7 +109,19 @@ def build_index(repo: str | Path, commit: str | None) -> dict:
     refs_by_target: dict[str, list[dict]] = defaultdict(list)
     for rel in sorted(trees):
         tree, mod = trees[rel]
-        refs, unres = collect_references(tree, rel, mod, resolver)
+        try:
+            refs, unres = collect_references(tree, rel, mod, resolver)
+        except RecursionError:
+            unresolved.append(
+                {
+                    "file": rel,
+                    "line": 1,
+                    "in_symbol": mod,
+                    "reason": "parse_error",
+                    "expression": "recursion limit exceeded during reference pass",
+                }
+            )
+            continue
         for target, record in refs:
             refs_by_target[target].append(record)
         unresolved.extend(unres)
@@ -154,6 +174,18 @@ def serialize(index: dict) -> str:
     return json.dumps(index, indent=2, sort_keys=True) + "\n"
 
 
+class IndexLoadError(Exception):
+    pass
+
+
 def load_index(path: str | Path) -> dict:
-    with open(path, encoding="utf-8") as fh:
-        return json.load(fh)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            index = json.load(fh)
+    except FileNotFoundError:
+        raise
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise IndexLoadError(f"cannot read index {str(path)!r}: {exc}") from exc
+    if not isinstance(index, dict) or "symbols" not in index or "unresolved" not in index:
+        raise IndexLoadError(f"{str(path)!r} is not an analyzer index file")
+    return index
