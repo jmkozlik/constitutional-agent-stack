@@ -1,11 +1,24 @@
 # The v0 analyzer, written in the spec format the harness will eventually compile.
 # Coarse on purpose. Nodes get split later, when miss telemetry says they should.
+#
+# Reconciled 2026-08-06 against the as-built repo (see git history for the
+# original): `writes` entries now name the modules that exist. Two departures
+# from the original, both reflecting build reality rather than changing intent:
+#   - The implementation merged the reference walker and unresolved-site
+#     detection into one module (analyzer/refs.py) — one scope walker serves
+#     both. unresolved_sites therefore gained a reference on reference_map:
+#     same-level nodes may not share a writes entry (E05), and the true
+#     relationship is sequential, not parallel.
+#   - index assembly/serialization (analyzer/indexer.py) is owned by
+#     symbol_table (its done_when carries the byte-determinism criterion);
+#     git plumbing (analyzer/gitio.py) is owned by affected_symbols, its
+#     primary consumer.
 
 - id: symbol_table
   one_liner: Walks a Python repo at a commit and records every function and class
              with its location, signature, and separate hashes for signature and body.
   references: []
-  writes: [analyzer/index.py]
+  writes: [analyzer/modpath.py, analyzer/symbols.py, analyzer/indexer.py]
   done_when:
     - Indexing the same commit twice produces byte identical output.
     - Given a symbol path, returns its definition and signature.
@@ -19,7 +32,7 @@
   one_liner: Records every site that references each symbol, with the arguments as
              written at the call site.
   references: [symbol_table]
-  writes: [analyzer/references.py]
+  writes: [analyzer/refs.py]
   done_when:
     - Given a symbol, returns every caller with file, line, and enclosing symbol.
     - Call site arguments are recorded as written, never traced to their origin.
@@ -28,8 +41,8 @@
 - id: unresolved_sites
   one_liner: Records every call site whose target cannot be determined statically,
              and marks the symbols around it low confidence.
-  references: [symbol_table]
-  writes: [analyzer/unresolved.py]
+  references: [symbol_table, reference_map]
+  writes: [analyzer/refs.py]
   done_when:
     - A registry lookup or getattr call produces a record, never a silent skip.
     - Symbols in a file containing an unresolved site are marked low confidence.
@@ -39,7 +52,7 @@
   one_liner: Given two commits, reports which symbols changed and whether the change
              was to the signature, the body, or only line positions.
   references: [symbol_table, reference_map]
-  writes: [analyzer/affected.py]
+  writes: [analyzer/affected.py, analyzer/gitio.py]
   done_when:
     - An import added at the top of a file reports every symbol as moved, nothing as changed.
     - A body only change does not report callers as affected.
@@ -49,7 +62,7 @@
 - id: analyzer_cli
   one_liner: Command line entry point exposing index, symbol, affected, and unresolved.
   references: [affected_symbols, unresolved_sites]
-  writes: [analyzer/cli.py]
+  writes: [analyzer/cli.py, analyzer/__main__.py]
   done_when:
     - index runs on a 20k line repo in under 10 seconds.
     - Every subcommand works against a saved index file without reindexing.

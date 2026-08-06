@@ -54,6 +54,12 @@ def test_low_confidence_marks_whole_file_only(tmp_path):
     assert symbols["src.app.boot"][0]["confidence"] == "high"
 
 
+def test_index_records_file_list(tmp_path):
+    repo = make_repo(tmp_path, {**PROJECT, "src/empty.py": "# nothing here\n"})
+    index = build_index(repo, None)
+    assert index["files"] == sorted([*PROJECT, "src/empty.py"])
+
+
 def test_serialize_deterministic(tmp_path):
     repo = make_repo(tmp_path, PROJECT)
     a = serialize(build_index(repo, None))

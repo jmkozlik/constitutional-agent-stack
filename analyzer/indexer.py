@@ -165,6 +165,7 @@ def build_index(repo: str | Path, commit: str | None) -> dict:
     return {
         "version": 1,
         "commit": sha,
+        "files": list(files),
         "symbols": symbols_out,
         "unresolved": unresolved,
     }
