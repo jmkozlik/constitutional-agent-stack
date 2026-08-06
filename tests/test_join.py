@@ -156,6 +156,23 @@ def test_low_confidence_scope_is_w02(tmp_path):
     assert "consumer_b" in w02[0].message
 
 
+def test_ambiguous_cross_level_edge_w05_says_possibly(tmp_path):
+    files = {
+        **FILES_CLEAN,
+        "core/base.py": "def ground(o):\n    return o.alpha_method()\n",
+        "core/a.py": (
+            "class Alpha:\n"
+            "    def alpha_method(self):\n"
+            "        return 1\n"
+        ),
+    }
+    _, _, _, findings = joined(tmp_path, SPEC_TWO_LEVEL, files)
+    w05 = [f for f in findings if f.code == "W05"]
+    assert len(w05) == 1
+    assert "possibly consumes" in w05[0].message
+    assert "ambiguous" in w05[0].message
+
+
 def test_reverse_cross_level_edge_is_w05(tmp_path):
     files = {
         **FILES_CLEAN,
@@ -231,7 +248,9 @@ def real_packet(node="affected_symbols", role="executor"):
     index = build_index(PROJECT_ROOT, None)
     resolved = join.resolve_writes(plan, index)
     return join.assemble_packet(
-        plan, index, resolved, node, role, identities_dir=PROJECT_ROOT / "harness" / "identities"
+        plan, index, resolved, node, role,
+        identities_dir=PROJECT_ROOT / "harness" / "identities",
+        repo=PROJECT_ROOT,
     )
 
 
@@ -245,6 +264,10 @@ def test_executor_packet_shape():
     assert "Callers of your write scope" in packet
     assert "verify with: python -m pytest" in packet
     assert "Missing means query" in packet
+    # An executor MODIFIES its write scope: the packet must carry the
+    # current source bodies, not just signatures (probe finding).
+    assert "def compute_affected(" in packet
+    assert "source (verbatim" in packet
     trailer = packet.rstrip("\n").rsplit("\n", 1)[-1]
     assert "packet_hash=" in trailer and "node=affected_symbols" in trailer
 

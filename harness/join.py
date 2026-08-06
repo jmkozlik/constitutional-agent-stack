@@ -328,15 +328,29 @@ def plan_checks(plan: Plan, code_index: dict, resolved: dict) -> list:
                 and owner is not None
                 and level_of[owner] != level_of[nid]
             ):
-                offenders[owner].append(consumed["symbol"]["path"])
+                offenders[owner].append(
+                    (consumed["symbol"]["path"], consumed["ambiguous"])
+                )
         for owner in sorted(offenders):
+            confident = sorted(p for p, ambi in offenders[owner] if not ambi)
+            ambiguous = sorted(p for p, ambi in offenders[owner] if ambi)
+            phrases = []
+            if confident:
+                phrases.append(f"consumes {', '.join(confident)}")
+            if ambiguous:
+                # Honesty bit survives into the warning: a name-match edge
+                # is a claim, not a fact (P3, Appendix B).
+                phrases.append(
+                    f"possibly consumes {', '.join(ambiguous)} "
+                    "(ambiguous attribution)"
+                )
             findings.append(
                 Finding(
                     "W05",
-                    f"[W05] {nid} (level {level_of[nid]}) consumes "
-                    f"{', '.join(sorted(offenders[owner]))} owned by {owner} "
-                    f"(level {level_of[owner]}) with no spec path between "
-                    "them — the compiled order does not protect this edge",
+                    f"[W05] {nid} (level {level_of[nid]}) {'; '.join(phrases)} "
+                    f"owned by {owner} (level {level_of[owner]}) with no spec "
+                    "path between them — the compiled order does not protect "
+                    "this edge",
                     nodes=(nid, owner),
                 )
             )
@@ -410,6 +424,24 @@ def _symbol_lines(symbol: dict, indent: str = "") -> list:
     return lines
 
 
+def _source_of(repo, commit, rel_path: str) -> str | None:
+    if repo is None:
+        return None
+    if commit:
+        try:
+            from analyzer import gitio
+
+            return gitio.read_files(repo, commit, [rel_path])[rel_path].decode(
+                errors="replace"
+            )
+        except GitError:
+            return None
+    try:
+        return (Path(repo) / rel_path).read_text(errors="replace")
+    except OSError:
+        return None
+
+
 def assemble_packet(
     plan: Plan,
     code_index: dict,
@@ -418,6 +450,7 @@ def assemble_packet(
     role: str,
     *,
     identities_dir,
+    repo=None,
 ) -> str:
     if node_id not in plan.nodes:
         raise JoinError(f"unknown node {node_id!r}")
@@ -469,6 +502,15 @@ def assemble_packet(
                     continue
                 seen.add(symbol["path"])
                 lines += _symbol_lines(symbol)
+        # You are MODIFYING these files: signatures alone are not enough
+        # to edit against (packet-sufficiency probe finding).
+        if info["status"] == "indexed":
+            source = _source_of(repo, code_index["commit"], entry)
+            if source is not None:
+                lines.append("")
+                lines.append(f"source (verbatim at {ref}):")
+                for i, line in enumerate(source.splitlines(), start=1):
+                    lines.append(f"  {i:>4}  {line}")
     lines.append("")
 
     lines.append("### Interfaces you consume")
