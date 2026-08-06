@@ -1,0 +1,55 @@
+# The v0 analyzer, written in the spec format the harness will eventually compile.
+# Coarse on purpose. Nodes get split later, when miss telemetry says they should.
+
+- id: symbol_table
+  one_liner: Walks a Python repo at a commit and records every function and class
+             with its location, signature, and separate hashes for signature and body.
+  references: []
+  writes: [analyzer/index.py]
+  done_when:
+    - Indexing the same commit twice produces byte identical output.
+    - Given a symbol path, returns its definition and signature.
+    - Reformatting whitespace does not change the body hash.
+    - Ranges are recomputed per commit, never stored as identity.
+  open:
+    - Nested functions as their own symbols, or folded into the parent?
+    - Index module level constants?
+
+- id: reference_map
+  one_liner: Records every site that references each symbol, with the arguments as
+             written at the call site.
+  references: [symbol_table]
+  writes: [analyzer/references.py]
+  done_when:
+    - Given a symbol, returns every caller with file, line, and enclosing symbol.
+    - Call site arguments are recorded as written, never traced to their origin.
+    - Ambiguous matches are recorded as ambiguous rather than dropped.
+
+- id: unresolved_sites
+  one_liner: Records every call site whose target cannot be determined statically,
+             and marks the symbols around it low confidence.
+  references: [symbol_table]
+  writes: [analyzer/unresolved.py]
+  done_when:
+    - A registry lookup or getattr call produces a record, never a silent skip.
+    - Symbols in a file containing an unresolved site are marked low confidence.
+    - A consumer can ask whether a symbol is safe to parallelize and get a straight no.
+
+- id: affected_symbols
+  one_liner: Given two commits, reports which symbols changed and whether the change
+             was to the signature, the body, or only line positions.
+  references: [symbol_table, reference_map]
+  writes: [analyzer/affected.py]
+  done_when:
+    - An import added at the top of a file reports every symbol as moved, nothing as changed.
+    - A body only change does not report callers as affected.
+    - A signature change names every call site.
+    - Deleting a symbol with recorded callers is an error, not a silent success.
+
+- id: analyzer_cli
+  one_liner: Command line entry point exposing index, symbol, affected, and unresolved.
+  references: [affected_symbols, unresolved_sites]
+  writes: [analyzer/cli.py]
+  done_when:
+    - index runs on a 20k line repo in under 10 seconds.
+    - Every subcommand works against a saved index file without reindexing.
