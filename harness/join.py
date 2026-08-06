@@ -18,6 +18,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from analyzer.gitio import GitError
 from analyzer.indexer import build_index
 from harness import speccc
 
@@ -59,8 +60,22 @@ class Finding:
 
 
 def load_plan(specs_dir) -> Plan:
+    specs = Path(specs_dir)
+    if not specs.is_dir():
+        raise JoinError(f"specs dir {str(specs)!r} does not exist")
+    if not sorted(specs.glob("*.yaml")):
+        raise JoinError(f"specs dir {str(specs)!r} contains no *.yaml files")
     nodes, origin = speccc.load(str(specs_dir))
     index = speccc.validate(nodes, origin)
+    # speccc validates field types but not element types; a non-string
+    # writes entry would traceback deep in plan_hash otherwise.
+    for nid, node in index.items():
+        for fieldname in ("references", "writes", "done_when", "open"):
+            for item in node.get(fieldname) or []:
+                if not isinstance(item, str):
+                    raise JoinError(
+                        f"[E01] {nid}: {fieldname} entry {item!r} is not a string"
+                    )
     speccc.resolve(index)
     speccc.find_cycle(index)
     levels = speccc.levelize(index)
@@ -93,25 +108,28 @@ def resolve_writes(plan: Plan, code_index: dict) -> dict:
     for nid in sorted(plan.nodes):
         node_map = {}
         for entry in plan.nodes[nid]["writes"]:
+            # Classification and every downstream map use the NORMALIZED
+            # path: git paths are always normalized, so './core/base.py'
+            # must mean core/base.py, not a phantom new file.
             norm = posixpath.normpath(entry)
-            if posixpath.isabs(entry) or norm.startswith(".."):
+            if posixpath.isabs(entry) or norm.startswith("..") or norm in ("", "."):
                 errors.append(
                     f"[E06] {nid}: writes entry '{entry}' is not a "
-                    "repo-relative path"
+                    "repo-relative file path"
                 )
                 continue
-            if entry in known_files:
-                node_map[entry] = {
+            if norm in known_files:
+                node_map[norm] = {
                     "status": "indexed",
                     "symbols": sorted(
-                        by_file.get(entry, []),
+                        by_file.get(norm, []),
                         key=lambda s: (s["path"], s["start_line"], s["sig_hash"]),
                     ),
                 }
-            elif entry.endswith(".py"):
-                node_map[entry] = {"status": "to_create", "symbols": []}
+            elif norm.endswith(".py"):
+                node_map[norm] = {"status": "to_create", "symbols": []}
             else:
-                node_map[entry] = {"status": "opaque", "symbols": []}
+                node_map[norm] = {"status": "opaque", "symbols": []}
         resolved[nid] = node_map
     if errors:
         raise JoinError(
@@ -166,7 +184,9 @@ def _ancestors(plan: Plan, node_id: str) -> set:
 
 def _owners(plan: Plan, path: str) -> list:
     return sorted(
-        nid for nid, node in plan.nodes.items() if path in node["writes"]
+        nid
+        for nid, node in plan.nodes.items()
+        if path in (posixpath.normpath(w) for w in node["writes"])
     )
 
 
@@ -194,7 +214,16 @@ def consumed_interfaces(
             owner = next(o for o in owners if o in ancestors)
         else:
             tag, owner = "undeclared", owners[0]
-        out.append({"symbol": symbol, "tag": tag, "owner": owner})
+        out.append(
+            {
+                "symbol": symbol,
+                "tag": tag,
+                "owner": owner,
+                # Truthful provenance: an edge known only through the
+                # resolver's name-match fallback is a claim, not a fact.
+                "ambiguous": all(s.get("ambiguous") for s in sites),
+            }
+        )
     return sorted(out, key=lambda c: c["symbol"]["path"])
 
 
@@ -203,6 +232,24 @@ def plan_checks(plan: Plan, code_index: dict, resolved: dict) -> list:
     level_of = {
         nid: lv for lv, ids in plan.levels.items() for nid in ids
     }
+    # E05 at normalized precision — speccc compares raw spec strings, so
+    # aliased spellings of one file ('core/base.py' vs './core/base.py')
+    # slip past it; after normalization they must still collide.
+    for lv, ids in sorted(plan.levels.items()):
+        owners = defaultdict(list)
+        for nid in ids:
+            for entry in resolved[nid]:
+                owners[entry].append(nid)
+        for entry, who in sorted(owners.items()):
+            if len(who) > 1:
+                findings.append(
+                    Finding(
+                        "E05",
+                        f"[E05] level {lv}: {' and '.join(sorted(who))} both "
+                        f"write '{entry}' (normalized)",
+                        nodes=tuple(sorted(who)),
+                    )
+                )
     # E08 / W04 — same-level cross-references: the symbol-precision
     # read-write extension of E05. Confident sites are a compile error;
     # ambiguous-only sites assume an edge and serialize (W04 + JA1).
@@ -378,6 +425,11 @@ def assemble_packet(
         raise JoinError(f"unknown role {role!r} (executor|tester)")
     node = plan.nodes[node_id]
     ref = code_index["commit"] or "worktree (uncommitted, not replayable)"
+    # The trailer must identify the dispatch-safe structure this packet
+    # belongs to (JA1), not the pre-adjustment spec levels.
+    dispatch_hash = serialize_plan(
+        plan, plan_checks(plan, code_index, resolved)
+    ).plan_hash
     lines = _identity_section(role, identities_dir)
 
     lines += ["## Task  [provenance: spec, verbatim]", "", f"node: {node_id}"]
@@ -388,7 +440,7 @@ def assemble_packet(
         lines.append("guarantees to verify (done_when):")
         lines += [f"  - {item}" for item in node["done_when"]]
         lines.append("")
-        return _finish_packet(lines, plan, node_id, role, ref)
+        return _finish_packet(lines, dispatch_hash, node_id, role, ref)
 
     lines.append(f"one_liner: {node['one_liner']}")
     lines.append("write scope (exhaustive — writing anything else is a violation):")
@@ -401,7 +453,7 @@ def assemble_packet(
     lines += [f"## State — compiled  [provenance: verified at {ref}]", ""]
 
     lines.append("### Write scope as it exists")
-    for entry in node["writes"]:
+    for entry in resolved[node_id]:
         lines += ["", f"#### {entry}"]
         info = resolved[node_id][entry]
         if info["status"] == "to_create":
@@ -430,6 +482,8 @@ def assemble_packet(
             tag = f"[UNDECLARED — owned by {c['owner']}, no spec path; spec-quality signal]"
         else:
             tag = "[unowned file]"
+        if c["ambiguous"]:
+            tag += " [ambiguous attribution — edge known only by name match]"
         surface.append((c["symbol"], tag))
     # Union in declared dependencies' surfaces so greenfield nodes still
     # see what exists (JA4).
@@ -508,15 +562,17 @@ def assemble_packet(
         "(none for this dispatch)",
         "",
     ]
-    return _finish_packet(lines, plan, node_id, role, ref)
+    return _finish_packet(lines, dispatch_hash, node_id, role, ref)
 
 
-def _finish_packet(lines, plan: Plan, node_id: str, role: str, ref: str) -> str:
+def _finish_packet(
+    lines, dispatch_hash: str, node_id: str, role: str, ref: str
+) -> str:
     body = "\n".join(lines).rstrip("\n") + "\n"
     packet_hash = hashlib.sha256(body.encode()).hexdigest()[:12]
     trailer = (
         f"packet: node={node_id} role={role} commit={ref} "
-        f"plan={plan.plan_hash} packet_hash={packet_hash}"
+        f"plan={dispatch_hash} packet_hash={packet_hash}"
     )
     return body + trailer + "\n"
 
@@ -556,6 +612,13 @@ def _cmd_packet(args) -> int:
     plan = load_plan(args.specs)
     index = build_index(args.repo, commit)
     resolved = resolve_writes(plan, index)
+    errors = [f for f in plan_checks(plan, index, resolved) if f.is_error]
+    if errors:
+        # A spec that fails compile must not hand out packets for the
+        # conflicting nodes (JD5: exit 1 on any E-grade).
+        for finding in errors:
+            print(f"join: {finding.message}", file=sys.stderr)
+        return 1
     packet = assemble_packet(
         plan,
         index,
@@ -604,7 +667,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except (JoinError, speccc.SpecError) as exc:
+    except (JoinError, speccc.SpecError, GitError, FileNotFoundError) as exc:
         print(f"join: {exc}", file=sys.stderr)
         return 1
 

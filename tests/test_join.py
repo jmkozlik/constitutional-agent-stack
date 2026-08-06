@@ -302,6 +302,135 @@ def test_packet_bytes_stable_across_hash_seeds(tmp_path):
     assert out["0"] == out["1"]
 
 
+# --- verification fixes (JV1-JV6) -------------------------------------------
+
+
+def test_aliased_writes_spelling_resolves_indexed(tmp_path):
+    spec = SPEC_TWO_LEVEL.replace("core/a.py", "./core/a.py")
+    plan, index, resolved, findings = joined(tmp_path, spec, FILES_CLEAN)
+    entry = resolved["consumer_a"]["core/a.py"]
+    assert entry["status"] == "indexed"
+    assert [s["path"] for s in entry["symbols"]] == ["core.a.alpha"]
+
+
+def test_normalized_write_collision_is_error(tmp_path):
+    spec = SPEC_TWO_LEVEL.replace(
+        "writes: [core/b.py]", "writes: [./core/a.py]"
+    )
+    plan, index, resolved, findings = joined(tmp_path, spec, FILES_CLEAN)
+    e05 = [f for f in findings if f.code == "E05"]
+    assert len(e05) == 1
+    assert "consumer_a" in e05[0].message and "consumer_b" in e05[0].message
+    assert e05[0].is_error
+
+
+def test_degenerate_writes_entry_is_e06(tmp_path):
+    spec = SPEC_TWO_LEVEL.replace("core/base.py", ".")
+    specs, repo = make_join_fixture(tmp_path, spec, FILES_CLEAN)
+    plan = join.load_plan(specs)
+    with pytest.raises(join.JoinError) as err:
+        join.resolve_writes(plan, build_index(repo, None))
+    assert "E06" in str(err.value)
+
+
+def test_missing_specs_dir_is_clean_error(tmp_path):
+    with pytest.raises(join.JoinError) as err:
+        join.load_plan(tmp_path / "no_such_specs")
+    assert "no_such_specs" in str(err.value)
+
+
+def test_empty_specs_dir_is_clean_error(tmp_path):
+    empty = tmp_path / "empty_specs"
+    empty.mkdir()
+    with pytest.raises(join.JoinError):
+        join.load_plan(empty)
+
+
+def test_non_string_payload_is_clean_error(tmp_path):
+    spec = SPEC_TWO_LEVEL.replace("writes: [core/base.py]", "writes: [123]")
+    specs, _ = make_join_fixture(tmp_path, spec, FILES_CLEAN)
+    with pytest.raises(join.JoinError) as err:
+        join.load_plan(specs)
+    assert "base" in str(err.value)
+
+
+def test_packet_stamps_dispatch_hash_not_spec_hash(tmp_path):
+    files = {
+        **FILES_CLEAN,
+        "core/b.py": (
+            "def beta(name, payload):\n"
+            "    return HANDLERS[name](payload)\n"
+        ),
+    }
+    plan, index, resolved, findings = joined(tmp_path, SPEC_TWO_LEVEL, files)
+    adjusted = join.serialize_plan(plan, findings)
+    packet = join.assemble_packet(
+        plan, index, resolved, "consumer_a", "executor",
+        identities_dir=PROJECT_ROOT / "harness" / "identities",
+    )
+    trailer = packet.rstrip("\n").rsplit("\n", 1)[-1]
+    assert f"plan={adjusted.plan_hash}" in trailer
+    assert f"plan={plan.plan_hash}" not in trailer
+
+
+def test_packet_cli_refuses_e08_spec(tmp_path):
+    files = {
+        **FILES_CLEAN,
+        "core/b.py": (
+            "from core.a import alpha\n"
+            "def beta():\n"
+            "    return alpha() + 2\n"
+        ),
+    }
+    specs, repo = make_join_fixture(tmp_path, SPEC_TWO_LEVEL, files)
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "packet", "consumer_a",
+         "--worktree", "--specs", str(specs), "--repo", str(repo)],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 1
+    assert "E08" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_cli_bad_commit_clean_error(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_TWO_LEVEL, FILES_CLEAN)
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "plan", "--specs", str(specs),
+         "--repo", str(repo), "--commit", "not-a-rev"],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 1
+    assert "join:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_ambiguous_only_attribution_is_marked(tmp_path):
+    files = {
+        **FILES_CLEAN,
+        "core/a.py": (
+            "class Alpha:\n"
+            "    def ping(self):\n"
+            "        return 1\n"
+        ),
+        "core/b.py": (
+            "def beta(obj):\n"
+            "    return obj.ping()\n"
+        ),
+    }
+    plan, index, resolved, _ = joined(tmp_path, SPEC_TWO_LEVEL, files)
+    consumed = join.consumed_interfaces(plan, index, resolved, "consumer_b")
+    ping = [c for c in consumed if c["symbol"]["path"] == "core.a.Alpha.ping"]
+    assert ping and ping[0]["ambiguous"] is True
+    packet = join.assemble_packet(
+        plan, index, resolved, "consumer_b", "executor",
+        identities_dir=PROJECT_ROOT / "harness" / "identities",
+    )
+    assert "ambiguous attribution" in packet
+
+
 # --- the real spec against this repo ---------------------------------------
 
 
