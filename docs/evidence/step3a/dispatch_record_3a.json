@@ -1,0 +1,30 @@
+{
+  "record": "dispatch",
+  "generator": "MANUAL \u2014 3c builds the emitter",
+  "dispatch_id": "3a",
+  "node": "affected_symbols",
+  "role": "executor",
+  "commit": "e667744bbbf58591746d367cc082eb20c6d93173",
+  "spec_plan_hash": "700ed9428a55",
+  "dispatch_plan_hash": "c98fb664a54f",
+  "packet_hash": "68437893ac8d",
+  "fence_sha256": "b3887d4250d578d62cbf62bc68385b586f180c56406146c57717899647a73cc1",
+  "model": "claude-opus-5",
+  "started": "2026-08-07T14:40:41-0400",
+  "handoff_written": "2026-08-07T14:47:xx-0400",
+  "report_delivered": "2026-08-07T14:52:xx-0400",
+  "wall_clock": "~11m30s dispatch-to-report",
+  "tokens": {
+    "input_incl_cache": 2185756,
+    "output": 22512
+  },
+  "verdict": "4/4 done_when ATTEST; zero code written; fence events none; diff gate clean; pytest 204 passed",
+  "miss_log": [
+    {
+      "request_mem": "bodies of tests/test_affected.py \u2014 to attest the shipped suite exercises the four bullets rather than only that it is green",
+      "blocking": false,
+      "fulfilled": "not fulfilled during the run \u2014 executor routed around it with independent fixtures (stronger evidence); filed as F4 evidence for packet content",
+      "layer_depth": "would-be layer 3 (repo-wide); packet = layer 1"
+    }
+  ]
+}

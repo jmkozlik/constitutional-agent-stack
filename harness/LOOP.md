@@ -1,20 +1,24 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-07, session close after report 001.
+**Updated:** 2026-08-07, session close after report 002.
 
 ## Where the build is
 
-- Analyzer v0: complete, 204 tests. The join (step 2): complete. Write-fence:
-  shipped, with the v0.4.1 scratch section (.harness/scratch).
-- Spec format v0.4.1 applied at commit 4e5d495; gate run; **third STOP**:
-  F12 (ratified Row.error iff-condition vs V6 parse-failure behavior) and
-  F13 (F10b pin vs legitimate moved rows). Candidate one-line amendments in
-  harness/reports/001.md. **Step 3 NOT dispatched** — staging is 4 commands
-  once F12/F13 are ruled; dispatch protocol drafted in report `next`.
-- W05 restructure (index_assembly node) ratified, sequenced AFTER step 3.
-  The refs W05 prints until it lands. gitio._git consumption (F6) rides
-  with it.
-- Authoritative findings ledger: harness/reports/001.md (F1–F13).
+- **STEP 3a HAS RUN AND IS CLEAN**: one node (affected_symbols), one
+  worktree at e667744, one compiled packet (68437893ac8d), no search,
+  inside the fence. 4/4 done_when ATTEST, zero code written, no fence
+  events, diff gate clean, one non-blocking REQUEST_MEM. The thesis held
+  for a validation-only dispatch. Full evidence: harness/reports/002.md +
+  docs/evidence/step3a/.
+- Stop rule amended (blocking-only stops); packet replay is a standing
+  tuple line (6/6 IDENTICAL this round). F12/F13 ruled and applied.
+- Open for ruling: **F18** (unresolved reference edges never reach the
+  affected report — the executor's own finding), F15/F16 rewords optional.
+- Queue: **3b** (re-dispatch with .harness/out/ attestation.md + defects.md
+  required verbatim — closes F17), **3c** (dispatch-record emitter, retires
+  the MANUAL label), then the ratified W05 restructure (index_assembly;
+  retires F6).
+- Authoritative findings ledger: harness/reports/002.md (F1–F18).
 
 ## Protocol (ratified 2026-08-07)
 
