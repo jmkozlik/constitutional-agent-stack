@@ -64,11 +64,17 @@ def main():
         return 2
 
     def in_scope(rel_path):
-        return (
+        if (
             rel_path in allowed
             or rel_path == ".harness"
             or rel_path.startswith(".harness" + os.sep)
-        )
+        ):
+            return True
+        # Sanctioned scratch space (v0.4.1): declared in the fence itself.
+        for scratch in fence.get("scratch", []):
+            if rel_path == scratch or rel_path.startswith(scratch + os.sep):
+                return True
+        return False
 
     tool = data.get("tool_name")
     tool_input = data.get("tool_input") or {}

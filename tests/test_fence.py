@@ -138,6 +138,28 @@ def test_hook_denies_bash_redirect_and_sed_and_git_apply(tmp_path):
     assert quiet.returncode == 0  # stderr redirect is not a file write
 
 
+def test_fence_declares_scratch_and_write_fence_creates_it(tmp_path):
+    built, repo = fenced_fixture(tmp_path)
+    assert built["scratch"] == [".harness/scratch"]
+    fence.write_fence(built, repo)
+    assert (repo / ".harness" / "scratch").is_dir()
+
+
+def test_hook_allows_scratch_writes(tmp_path):
+    built, repo = fenced_fixture(tmp_path)
+    fence.write_fence(built, repo)
+    result = run_hook(
+        {"tool_name": "Write", "cwd": str(repo),
+         "tool_input": {"file_path": str(repo / ".harness" / "scratch" / "fixture" / "x.py")}}
+    )
+    assert result.returncode == 0
+    redirect = run_hook(
+        {"tool_name": "Bash", "cwd": str(repo),
+         "tool_input": {"command": "echo note >> .harness/scratch/notes.md"}}
+    )
+    assert redirect.returncode == 0
+
+
 def test_hook_noop_without_fence(tmp_path):
     result = run_hook(
         {"tool_name": "Write", "cwd": str(tmp_path),

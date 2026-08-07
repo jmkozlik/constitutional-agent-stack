@@ -47,7 +47,7 @@
       - "analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]"
   done_when:
     - Indexing the same commit twice produces byte identical output.
-    - The emitted index maps every symbol path to a record carrying its definition location and signature.
+    - The emitted index maps every symbol path to at least one record carrying its definition location and signature.
     - Reformatting whitespace does not change the body hash.
     - Ranges are recomputed per commit, never stored as identity.
   open:
@@ -99,12 +99,13 @@
       - "analyzer.affected.Row.category ∈ signature | body | decorators | moved | deleted | added | unknown  [authored]"
       - "analyzer.affected.Row.path: the affected symbol's dotted path; one row per affected symbol path  [authored]"
       - "analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]"
+      - "analyzer.affected.AffectedReport: compiled at call time — compute_affected builds the old and new indexes internally from old_rev and new_rev; no pre-built index artifact is read or required  [authored]"
     errors:
       - "analyzer.affected.Row.error: set iff the symbol was deleted while the old index records callers  [authored]"
       - "analyzer.affected.AffectedReport.has_error: true iff any row.error  [authored]"
   done_when:
     - An import added at the top of a file reports every symbol as moved, nothing as changed.
-    - A body only change does not report callers as affected.
+    - A body only change reports the changed symbol with category body and empty callers, and no row for any of its callers.
     - A signature change names every call site.
     - Deleting a symbol with recorded callers is an error, not a silent success.
 

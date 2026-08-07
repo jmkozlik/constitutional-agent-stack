@@ -43,6 +43,10 @@ def build_fence(
         "plan": dispatch.plan_hash,
         "packet_hash": packet_hash,
         "allowed": {entry: status for entry, status in delta["writes"]},
+        # Sanctioned ephemeral space (v0.4.1): fixtures, notes, the handoff.
+        # Inside the worktree so the fence sees it; under .harness so the
+        # diff gate exempts it.
+        "scratch": [f"{FENCE_DIR}/scratch"],
     }
 
 
@@ -51,6 +55,8 @@ def write_fence(fence: dict, worktree) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / "fence.json"
     target.write_text(json.dumps(fence, indent=2, sort_keys=True) + "\n")
+    for scratch in fence.get("scratch", []):
+        (Path(worktree) / scratch).mkdir(parents=True, exist_ok=True)
     return target
 
 
