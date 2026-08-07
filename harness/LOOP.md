@@ -1,6 +1,18 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-07, after report 003 (F15/F16 applied verbatim, F19
+**Updated:** 2026-08-07, after report 004. **3b ran clean with the artifact
+channel proven**: 4 ATTEST / 2 FILE (callers_unknowable unbuilt — expected
+spec-leads-code state), attestation.md + defects.md delivered, fence clean,
+zero writes. F17 closed. 3b's D2 filing sharpened F20 into a ratifiable
+rule (structural authored lines presence-check; behavioral stay exempt —
+demonstrated, zero false positives). New: F21 (unresolved-trigger catalog),
+F22 (verify command names ambient interpreter). **Rulings needed before 3d:
+D1 Option A (in-scope reimplementation, duplicate parse) vs Option B (index
+carries import bindings — cross-node surface change); F20/D2 rule.** Queue:
+3c (record emitter) → 3d → W05. Packet delivery is now by file
+(.harness/packet.md). Ledger F1–F22: harness/reports/004.md.
+
+**Previous:** 2026-08-07, after report 003 (F15/F16 applied verbatim, F19
 replay checker built and closed, F18 spec diff PROPOSED — awaiting
 ratification, incl. the importer-set definition pin). New standing
 protocols: ratification fidelity (ruled-text vs applied-diff side by side;

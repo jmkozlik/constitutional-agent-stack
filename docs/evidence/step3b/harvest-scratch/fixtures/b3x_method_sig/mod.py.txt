@@ -1,0 +1,3 @@
+class Service:
+    def handle(self, a, b):
+        return a

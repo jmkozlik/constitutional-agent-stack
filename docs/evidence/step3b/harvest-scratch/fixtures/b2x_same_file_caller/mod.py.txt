@@ -1,0 +1,8 @@
+def target(a):
+    tmp = a
+    tmp = tmp + 1
+    return tmp
+
+
+def same_file_caller():
+    return target(1)

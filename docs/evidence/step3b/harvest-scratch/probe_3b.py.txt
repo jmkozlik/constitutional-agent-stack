@@ -1,0 +1,328 @@
+"""Behavioral probe for the affected_symbols done_when bullets.
+
+Builds throwaway git repos under .harness/scratch/fixtures/, runs
+compute_affected over two revisions of each, and prints the rows.
+Nothing here is shipped; this exists to produce attestation evidence.
+"""
+
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from analyzer.affected import compute_affected  # noqa: E402
+from analyzer.indexer import build_index  # noqa: E402
+
+SCRATCH = Path(__file__).resolve().parent
+FIXTURES = SCRATCH / "fixtures"
+
+
+def git(repo, *args):
+    return subprocess.run(
+        ["git", *args], cwd=repo, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def make_repo(name):
+    repo = FIXTURES / name
+    if repo.exists():
+        shutil.rmtree(repo)
+    repo.mkdir(parents=True)
+    git(repo, "init", "-q")
+    git(repo, "config", "user.email", "probe@example.invalid")
+    git(repo, "config", "user.name", "probe")
+    return repo
+
+
+def commit(repo, files, msg):
+    for rel, content in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if content is None:
+            p.unlink()
+        else:
+            p.write_text(content)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", msg)
+    return git(repo, "rev-parse", "HEAD")
+
+
+def show(report):
+    print(f"  has_error={report.has_error}")
+    for row in report.rows:
+        print(f"  ROW path={row.path!r} category={row.category!r} detail={row.detail!r}")
+        print(f"      callers({len(row.callers)}):")
+        for c in row.callers:
+            print(
+                f"        {c['file']}:{c['line']} in={c['in_symbol']} "
+                f"kind={c['kind']} args={c.get('args')} "
+                f"ambiguous={c.get('ambiguous')} note={c.get('note')}"
+            )
+        print(f"      dataclass fields present: {sorted(vars(row))}")
+        print(
+            "      getattr(row,'callers_unknowable',<MISSING>) = "
+            f"{getattr(row, 'callers_unknowable', '<MISSING>')!r}"
+        )
+
+
+def banner(title):
+    print()
+    print("=" * 72)
+    print(title)
+    print("=" * 72)
+
+
+# ---------------------------------------------------------------- bullet 1
+def bullet1():
+    banner("B1  import added at top -> every symbol `moved`, no sig/body/decor row")
+    repo = make_repo("b1_import_at_top")
+    mod_v1 = (
+        "def alpha(a, b):\n"
+        "    return a + b\n"
+        "\n"
+        "\n"
+        "def beta(x):\n"
+        "    return alpha(x, 1)\n"
+        "\n"
+        "\n"
+        "class Gamma:\n"
+        "    def method(self, y):\n"
+        "        return beta(y)\n"
+    )
+    other = (
+        "from mod import alpha, beta\n"
+        "\n"
+        "\n"
+        "def use():\n"
+        "    return alpha(1, 2) + beta(3)\n"
+    )
+    old = commit(repo, {"mod.py": mod_v1, "other.py": other}, "v1")
+    new = commit(repo, {"mod.py": "import os\n" + mod_v1}, "add import at top")
+    report = compute_affected(repo, old, new)
+    show(report)
+    cats = sorted({r.category for r in report.rows})
+    print(f"  >> distinct categories: {cats}")
+    print(f"  >> row paths: {sorted(r.path for r in report.rows)}")
+    print(
+        "  >> any signature/body/decorators row: "
+        f"{any(r.category in ('signature', 'body', 'decorators') for r in report.rows)}"
+    )
+
+
+# ---------------------------------------------------------------- bullet 2
+def bullet2():
+    banner("B2  body-only change -> category body, empty callers, no caller rows")
+    repo = make_repo("b2_body_only")
+    other = (
+        "from mod import target\n"
+        "\n"
+        "\n"
+        "def caller_one():\n"
+        "    return target(1)\n"
+        "\n"
+        "\n"
+        "def caller_two():\n"
+        "    return target(2)\n"
+    )
+    mod_v1 = "def target(a):\n    return a + 1\n"
+    mod_v2 = "def target(a):\n    return a + 2\n"
+    old = commit(repo, {"mod.py": mod_v1, "other.py": other}, "v1")
+    new = commit(repo, {"mod.py": mod_v2}, "body only")
+    report = compute_affected(repo, old, new)
+    show(report)
+    tgt = [r for r in report.rows if r.path == "mod.target"]
+    print(f"  >> mod.target rows: {[(r.category, len(r.callers)) for r in tgt]}")
+    print(
+        "  >> rows for caller symbols: "
+        f"{[(r.path, r.category) for r in report.rows if r.path.startswith('other.')]}"
+    )
+    # what the old index recorded as callers of mod.target
+    idx = build_index(repo, old)
+    for rec in idx["symbols"]:
+        if rec["path"] == "mod.target":
+            print(
+                "  >> old index referenced_by for mod.target: "
+                f"{[(c['file'], c['line'], c['in_symbol']) for c in rec['referenced_by']]}"
+            )
+
+
+# ---------------------------------------------------------------- bullet 3
+def bullet3():
+    banner("B3  signature change -> names every call site")
+    repo = make_repo("b3_signature")
+    mod_v1 = (
+        "def target(a):\n"
+        "    return a\n"
+        "\n"
+        "\n"
+        "def local_user():\n"
+        "    return target(9)\n"
+    )
+    mod_v2 = (
+        "def target(a, b):\n"
+        "    return a\n"
+        "\n"
+        "\n"
+        "def local_user():\n"
+        "    return target(9)\n"
+    )
+    other = (
+        "from mod import target\n"
+        "\n"
+        "\n"
+        "def caller_one():\n"
+        "    return target(1)\n"
+        "\n"
+        "\n"
+        "def caller_two():\n"
+        "    return target(2)\n"
+    )
+    third = "import mod\n\n\ndef caller_three():\n    return mod.target(3)\n"
+    old = commit(
+        repo, {"mod.py": mod_v1, "other.py": other, "third.py": third}, "v1"
+    )
+    new = commit(repo, {"mod.py": mod_v2}, "param added")
+    report = compute_affected(repo, old, new)
+    show(report)
+    idx = build_index(repo, old)
+    for rec in idx["symbols"]:
+        if rec["path"] == "mod.target":
+            print(
+                "  >> old index referenced_by for mod.target: "
+                f"{[(c['file'], c['line'], c['in_symbol']) for c in rec['referenced_by']]}"
+            )
+    sig = [r for r in report.rows if r.path == "mod.target"]
+    for r in sig:
+        print(
+            f"  >> mod.target category={r.category} "
+            f"call sites named={[(c['file'], c['line']) for c in r.callers]}"
+        )
+
+
+# ---------------------------------------------------------------- bullet 4
+def bullet4():
+    banner("B4  delete with recorded callers -> error, not silent success")
+    repo = make_repo("b4_delete_with_callers")
+    mod_v1 = "def target(a):\n    return a\n\n\ndef keeper():\n    return 1\n"
+    mod_v2 = "def keeper():\n    return 1\n"
+    other = "from mod import target\n\n\ndef caller_one():\n    return target(1)\n"
+    old = commit(repo, {"mod.py": mod_v1, "other.py": other}, "v1")
+    new = commit(repo, {"mod.py": mod_v2}, "delete target")
+    report = compute_affected(repo, old, new)
+    show(report)
+    print(f"  >> report.has_error = {report.has_error}")
+
+    banner("B4-control  delete with NO recorded callers -> not an error")
+    repo2 = make_repo("b4_control_no_callers")
+    old2 = commit(repo2, {"mod.py": mod_v1}, "v1")
+    new2 = commit(repo2, {"mod.py": mod_v2}, "delete target")
+    report2 = compute_affected(repo2, old2, new2)
+    show(report2)
+    print(f"  >> report.has_error = {report2.has_error}")
+
+
+# ---------------------------------------------------------------- bullet 5
+def bullet5():
+    banner("B5  sig change, importer set carries unresolved sites -> callers_unknowable")
+    repo = make_repo("b5_sig_unknowable")
+    mod_v1 = "def target(a):\n    return a\n"
+    mod_v2 = "def target(a, b):\n    return a\n"
+    # other.py imports mod (so it is in target's importer set) AND reaches the
+    # module dynamically, which the indexer cannot resolve.
+    other = (
+        "import mod\n"
+        "\n"
+        "\n"
+        "def dynamic_user(name):\n"
+        "    fn = getattr(mod, name)\n"
+        "    return fn(1)\n"
+    )
+    old = commit(repo, {"mod.py": mod_v1, "other.py": other}, "v1")
+    new = commit(repo, {"mod.py": mod_v2}, "param added")
+
+    idx = build_index(repo, old)
+    print("  >> old index unresolved sites:")
+    for u in idx["unresolved"]:
+        print(
+            f"     file={u['file']} line={u['line']} in={u['in_symbol']} "
+            f"reason={u['reason']} expr={u.get('expression')}"
+        )
+    for rec in idx["symbols"]:
+        if rec["path"] == "mod.target":
+            print(
+                "  >> old index referenced_by for mod.target: "
+                f"{rec['referenced_by']}"
+            )
+    report = compute_affected(repo, old, new)
+    show(report)
+
+
+# ---------------------------------------------------------------- bullet 6
+def bullet6():
+    banner("B6  delete, no recorded callers but unresolved importer sites")
+    repo = make_repo("b6_delete_unknowable")
+    mod_v1 = "def target(a):\n    return a\n\n\ndef keeper():\n    return 1\n"
+    mod_v2 = "def keeper():\n    return 1\n"
+    other = (
+        "import mod\n"
+        "\n"
+        "\n"
+        "def dynamic_user(name):\n"
+        "    fn = getattr(mod, name)\n"
+        "    return fn(1)\n"
+    )
+    old = commit(repo, {"mod.py": mod_v1, "other.py": other}, "v1")
+    new = commit(repo, {"mod.py": mod_v2}, "delete target")
+
+    idx = build_index(repo, old)
+    print("  >> old index unresolved sites:")
+    for u in idx["unresolved"]:
+        print(
+            f"     file={u['file']} line={u['line']} in={u['in_symbol']} "
+            f"reason={u['reason']} expr={u.get('expression')}"
+        )
+    for rec in idx["symbols"]:
+        if rec["path"] == "mod.target":
+            print(
+                "  >> old index referenced_by for mod.target: "
+                f"{rec['referenced_by']}"
+            )
+    report = compute_affected(repo, old, new)
+    show(report)
+    print(f"  >> report.has_error = {report.has_error}")
+
+
+# ------------------------------------------------------------------ driver
+def surface_shape():
+    banner("SURFACE  Row dataclass field list as constructed")
+    import dataclasses
+
+    from analyzer.affected import AffectedReport, Row
+
+    print(f"  Row fields:            {[f.name for f in dataclasses.fields(Row)]}")
+    print(
+        f"  AffectedReport fields: {[f.name for f in dataclasses.fields(AffectedReport)]}"
+    )
+    print(f"  'callers_unknowable' in Row fields: "
+          f"{'callers_unknowable' in [f.name for f in dataclasses.fields(Row)]}")
+
+
+if __name__ == "__main__":
+    which = sys.argv[1] if len(sys.argv) > 1 else "all"
+    table = {
+        "surface": surface_shape,
+        "b1": bullet1,
+        "b2": bullet2,
+        "b3": bullet3,
+        "b4": bullet4,
+        "b5": bullet5,
+        "b6": bullet6,
+    }
+    if which == "all":
+        for fn in table.values():
+            fn()
+    else:
+        table[which]()

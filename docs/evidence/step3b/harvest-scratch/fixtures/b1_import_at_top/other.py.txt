@@ -1,0 +1,5 @@
+from mod import alpha, beta
+
+
+def use():
+    return alpha(1, 2) + beta(3)
