@@ -790,6 +790,7 @@ def _cmd_packet(args) -> int:
         args.node,
         args.role,
         identities_dir=Path(args.specs).parent / "identities",
+        repo=args.repo,
     )
     if args.output:
         Path(args.output).write_text(packet, encoding="utf-8")

@@ -312,6 +312,26 @@ def test_to_create_rendered_in_packet(tmp_path):
     assert "you are creating this file" in packet
 
 
+def test_cli_packet_carries_source_and_hashes(tmp_path):
+    # The CLI path must produce the same complete packet as direct calls:
+    # source bodies and content-hashed writes (a CLI/direct divergence here
+    # once sent body-less packets to the sufficiency probes).
+    import shutil
+
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    shutil.copytree(PROJECT_ROOT / "harness" / "identities", tmp_path / "identities")
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "packet", "base",
+         "--worktree", "--specs", str(specs), "--repo", str(repo)],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "source (verbatim" in result.stdout
+    assert "def ground()" in result.stdout
+    assert "exists@" in result.stdout
+
+
 def test_packet_bytes_stable_across_hash_seeds(tmp_path):
     out = {}
     for seed in ("0", "1"):
