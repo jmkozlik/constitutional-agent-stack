@@ -991,6 +991,71 @@ def _cmd_packet(args) -> int:
     return 0
 
 
+def _cmd_replay(args) -> int:
+    """F19: the standing replay check as a first-class verdict.
+
+    Rebuilds the packet at the pinned commit — spec and identities read
+    FROM THAT COMMIT, never the worktree — and compares byte-for-byte
+    against the shipped packet. Verdicts are disjoint: IDENTICAL (exit 0),
+    DIVERGED (exit 1), CHECK-ERROR (exit 2). A missing or unreadable
+    input is an error state, never a divergence."""
+    import difflib
+    import tempfile
+
+    try:
+        shipped = Path(args.shipped).read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"CHECK-ERROR: cannot read shipped packet: {exc}", file=sys.stderr)
+        return 2
+    try:
+        from analyzer import gitio
+
+        sha = gitio.resolve_commit(args.repo, args.commit)
+        tree_paths = [
+            p
+            for p in gitio._git(args.repo, "ls-tree", "-r", "--name-only",
+                                "--full-tree", sha).decode().splitlines()
+            if p.startswith("harness/specs/") and p.endswith(".yaml")
+            or p.startswith("harness/identities/")
+        ]
+        if not any(p.startswith("harness/specs/") for p in tree_paths):
+            print(
+                f"CHECK-ERROR: no harness/specs/*.yaml at {sha[:12]} — "
+                "replay requires the spec to be committed",
+                file=sys.stderr,
+            )
+            return 2
+        blobs = gitio.read_files(args.repo, sha, tree_paths)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for rel, content in blobs.items():
+                target = root / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            plan = load_plan(root / "harness" / "specs")
+            index = build_index(args.repo, sha)
+            resolved = resolve_writes(plan, index)
+            rebuilt = assemble_packet(
+                plan, index, resolved, args.node, args.role,
+                identities_dir=root / "harness" / "identities",
+                repo=args.repo,
+            )
+    except (JoinError, speccc.SpecError, GitError, OSError) as exc:
+        print(f"CHECK-ERROR: rebuild failed: {exc}", file=sys.stderr)
+        return 2
+    if rebuilt == shipped:
+        print(f"IDENTICAL  node={args.node} role={args.role} commit={sha[:12]}")
+        return 0
+    print(f"DIVERGED  node={args.node} role={args.role} commit={sha[:12]}")
+    diff = difflib.unified_diff(
+        shipped.splitlines(keepends=True),
+        rebuilt.splitlines(keepends=True),
+        fromfile="shipped", tofile="rebuilt",
+    )
+    sys.stdout.writelines(list(diff)[:40])
+    return 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="harness.join",
@@ -1018,6 +1083,16 @@ def main(argv=None) -> int:
         help="compile from the uncommitted worktree (stamped not replayable)",
     )
     p_packet.add_argument("-o", "--output", default=None)
+
+    p_replay = sub.add_parser(
+        "replay", help="rebuild a packet at its pinned commit and compare"
+    )
+    p_replay.add_argument("node")
+    p_replay.add_argument("--role", default="executor", choices=sorted(TOOLS))
+    p_replay.add_argument("--repo", default=".")
+    p_replay.add_argument("--commit", required=True)
+    p_replay.add_argument("--shipped", required=True)
+    p_replay.set_defaults(func=_cmd_replay)
     p_packet.set_defaults(func=_cmd_packet)
 
     args = parser.parse_args(argv)

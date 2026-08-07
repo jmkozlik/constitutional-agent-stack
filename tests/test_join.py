@@ -809,6 +809,82 @@ def test_meta_language_renders_in_both_packets(tmp_path):
         assert "language: python" in packet
 
 
+# --- F19: replay checker (IDENTICAL / DIVERGED / CHECK-ERROR) ---------------
+
+
+def replay_cli(*args):
+    return subprocess.run(
+        [sys.executable, "-m", "harness.join", "replay", *args],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+
+
+def make_replayable(tmp_path):
+    import shutil
+
+    from tests.conftest import git, make_repo
+
+    repo = make_repo(tmp_path, SURFACED_FILES)
+    (repo / "harness" / "specs").mkdir(parents=True)
+    (repo / "harness" / "specs" / "spec.yaml").write_text(SPEC_SURFACED)
+    shutil.copytree(
+        PROJECT_ROOT / "harness" / "identities", repo / "harness" / "identities"
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "harness in-repo")
+    sha = git(repo, "rev-parse", "HEAD")
+    shipped = tmp_path / "shipped.md"
+    build = subprocess.run(
+        [sys.executable, "-m", "harness.join", "packet", "base",
+         "--specs", str(repo / "harness" / "specs"), "--repo", str(repo),
+         "--commit", sha, "-o", str(shipped)],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert build.returncode == 0, build.stderr
+    return repo, sha, shipped
+
+
+def test_replay_identical_despite_later_spec_edit(tmp_path):
+    repo, sha, shipped = make_replayable(tmp_path)
+    # Mutate the WORKTREE spec after shipping: commit-anchored replay must
+    # still report IDENTICAL (it reads the spec from the pinned commit).
+    (repo / "harness" / "specs" / "spec.yaml").write_text(
+        SPEC_SURFACED.replace("The base module.", "The base module, edited later.")
+    )
+    result = replay_cli("base", "--repo", str(repo), "--commit", sha,
+                        "--shipped", str(shipped))
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "IDENTICAL" in result.stdout
+
+
+def test_replay_diverged_on_tampered_shipped(tmp_path):
+    repo, sha, shipped = make_replayable(tmp_path)
+    shipped.write_text(shipped.read_text().replace("validation-only", "tampered"))
+    result = replay_cli("base", "--repo", str(repo), "--commit", sha,
+                        "--shipped", str(shipped))
+    assert result.returncode == 1
+    assert "DIVERGED" in result.stdout
+
+
+def test_replay_missing_shipped_is_check_error_not_diverged(tmp_path):
+    repo, sha, shipped = make_replayable(tmp_path)
+    result = replay_cli("base", "--repo", str(repo), "--commit", sha,
+                        "--shipped", str(tmp_path / "no_such_packet.md"))
+    assert result.returncode == 2
+    assert "CHECK-ERROR" in result.stderr
+    assert "DIVERGED" not in result.stdout + result.stderr
+
+
+def test_replay_bad_commit_is_check_error(tmp_path):
+    repo, sha, shipped = make_replayable(tmp_path)
+    result = replay_cli("base", "--repo", str(repo), "--commit", "not-a-rev",
+                        "--shipped", str(shipped))
+    assert result.returncode == 2
+    assert "CHECK-ERROR" in result.stderr
+
+
 # --- the real spec against this repo ---------------------------------------
 
 

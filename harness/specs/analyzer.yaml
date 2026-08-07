@@ -101,10 +101,10 @@
       - "analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]"
       - "analyzer.affected.AffectedReport: compiled at call time — compute_affected builds the old and new indexes internally from old_rev and new_rev; no pre-built index artifact is read or required  [authored]"
     errors:
-      - "analyzer.affected.Row.error: set iff callers are recorded and the symbol was deleted, or its changed file fails to parse at the new rev  [authored]"
+      - "analyzer.affected.Row.error: Row.error is set iff the old index records callers for the symbol and either the symbol was deleted at new_rev or its changed file fails to parse at new_rev.  [authored]"
       - "analyzer.affected.AffectedReport.has_error: true iff any row.error  [authored]"
   done_when:
-    - An import added at the top of a file reports every symbol as moved, nothing as changed.
+    - An import added at the top of a file reports every symbol as moved, with no signature, body, or decorators row.
     - A body only change reports the changed symbol with category body and empty callers, and no signature or body row for any of its callers.
     - A signature change names every call site.
     - Deleting a symbol with recorded callers is an error, not a silent success.
