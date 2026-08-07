@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -262,7 +263,7 @@ def test_executor_packet_shape():
     assert "compute_affected" in packet
     assert "analyzer.indexer.build_index" in packet  # consumed interface
     assert "Callers of your write scope" in packet
-    assert "verify with: python -m pytest" in packet
+    assert "verify with: .venv/bin/python -m pytest" in packet
     assert "Missing means query" in packet
     # An executor MODIFIES its write scope: the packet must carry the
     # current source bodies, not just signatures (probe finding).
@@ -776,9 +777,11 @@ def test_authored_entries_are_delta_exempt(tmp_path):
     delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
     statuses = dict(delta["types"])
     assert statuses["core.base.Report(total: int, notes: list = [])  [seeded]"] == "present"
-    assert "authored" in statuses["core.base.Report.total ∈ small | large  [authored]"]
+    # F20 (ratified): a structural authored line presence-checks now.
+    assert statuses["core.base.Report.total ∈ small | large  [authored]"] == "present"
+    # Callable-signature shape stays behavioral-exempt.
     assert "authored" in statuses["core.base.record(path: str, line: int)  [authored]"]
-    assert delta["kind"] == "empty"  # authored lines never count outstanding
+    assert delta["kind"] == "empty"
 
 
 def test_seeded_mismatch_still_fails_delta(tmp_path):
@@ -883,6 +886,165 @@ def test_replay_bad_commit_is_check_error(tmp_path):
                         "--shipped", str(shipped))
     assert result.returncode == 2
     assert "CHECK-ERROR" in result.stderr
+
+
+# --- F20 (ratified): structural authored lines presence-check ----------------
+
+
+def test_structural_authored_absent_is_outstanding(tmp_path):
+    # An authored Type.attr line whose attribute does not exist must count
+    # as outstanding — the F20 rule, ratified from 3b's D2 filing.
+    spec = SPEC_SURFACED.replace(
+        'types:\n      - "core.base.Report(total: int, notes: list = [])"',
+        'types:\n'
+        '      - "core.base.Report(total: int, notes: list = [])  [seeded]"\n'
+        '      - "core.base.Report.phantom: never built  [authored]"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    statuses = dict(delta["types"])
+    assert statuses['core.base.Report.phantom: never built  [authored]'] == "absent"
+    assert delta["kind"] == "partial"
+
+
+def test_structural_authored_present_and_behavioral_exempt(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        'types:\n      - "core.base.Report(total: int, notes: list = [])"',
+        'types:\n'
+        '      - "core.base.Report(total: int, notes: list = [])  [seeded]"\n'
+        '      - "core.base.Report.total ∈ small | large  [authored]"\n'
+        '      - "core.base.Report: assembled at call time from parts  [authored]"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    statuses = dict(delta["types"])
+    assert statuses["core.base.Report.total ∈ small | large  [authored]"] == "present"
+    assert "authored" in statuses["core.base.Report: assembled at call time from parts  [authored]"]
+    assert delta["kind"] == "empty"
+
+
+def test_f20_locked_demonstration_on_real_spec():
+    # The 3b-packet demonstration, locked as ratified: nine authored lines
+    # on affected_symbols; the structural ones presence-check; exactly one
+    # is absent (callers_unknowable, unbuilt until 3d); behavioral lines
+    # stay exempt. F20 closes on this being true.
+    plan = join.load_plan(PROJECT_ROOT / "harness" / "specs")
+    index = build_index(PROJECT_ROOT, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "affected_symbols", repo=PROJECT_ROOT)
+    statuses = {e.split("  [")[0]: s for e, s in delta["types"] + delta["errors"] + delta["callables"]}
+    def stat(prefix):
+        return next(s for e, s in statuses.items() if e.startswith(prefix))
+    assert stat("analyzer.affected.Row.category") == "present"
+    assert stat("analyzer.affected.Row.path") == "present"
+    assert stat("analyzer.affected.Row.callers:") == "present"
+    assert stat("analyzer.affected.Row.callers_unknowable") == "absent"
+    assert stat("analyzer.affected.Row.error") == "present"
+    assert stat("analyzer.affected.AffectedReport.has_error") == "present"
+    assert "authored" in stat("analyzer.affected.compute_affected")  # behavioral: exempt
+    assert "authored" in stat("analyzer.affected.AffectedReport:")   # behavioral: exempt
+    assert delta["kind"] == "partial"
+    assert delta["outstanding"] and any("callers_unknowable" in o for o in delta["outstanding"])
+
+
+# --- F21/F22/F3 (ratified): catalog, interpreter, protocol-in-packet ---------
+
+
+def test_tester_packet_carries_trigger_catalog(tmp_path):
+    packet = real_packet(role="tester")
+    assert "trigger catalog" in packet
+    assert "subscript_call" in packet and "TABLE[key](" in packet
+    assert "getattr(obj, name)" in packet
+    assert "importer set" in packet  # the ratified F18 definition rides along
+    executor = real_packet(role="executor")
+    assert "trigger catalog" not in executor  # tester-only, P6 untouched
+
+
+def test_verify_line_names_worktree_interpreter():
+    packet = real_packet(role="executor")
+    assert "verify with: .venv/bin/python -m pytest" in packet
+
+
+def test_protocol_section_in_both_roles():
+    for role in ("executor", "tester"):
+        packet = real_packet(role=role)
+        assert "## Protocol  [provenance: fixed]" in packet
+        assert "REQUEST_MEM" in packet
+        assert packet.index("## Protocol") < packet.index("## Task")
+    assert ".harness/out/attestation.md" in real_packet(role="executor")
+    assert ".harness/out/defects.md" in real_packet(role="executor")
+    assert ".harness/out/tester_report.md" in real_packet(role="tester")
+
+
+# --- 3c: the dispatch-record emitter -----------------------------------------
+
+
+def test_record_emitter_composes_from_artifacts(tmp_path):
+    import hashlib
+
+    from harness import fence as fence_mod
+
+    repo, sha, shipped = make_replayable(tmp_path)
+    plan = join.load_plan(repo / "harness" / "specs")
+    index = build_index(repo, sha)
+    resolved = join.resolve_writes(plan, index)
+    built = fence_mod.build_fence(
+        plan, index, resolved, "base", repo=repo, packet_hash="ignored"
+    )
+    fence_path = fence_mod.write_fence(built, repo)
+    out = tmp_path / "record.json"
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "record", "base",
+         "--repo", str(repo), "--commit", sha,
+         "--specs", str(repo / "harness" / "specs"),
+         "--packet", str(shipped), "--fence", str(fence_path),
+         "--dispatch-id", "test-1",
+         "--started", "2026-08-07T10:00:00-04:00",
+         "--finished", "2026-08-07T10:20:30-04:00",
+         "--tokens-out", "1234", "-o", str(out)],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 0, result.stderr
+    record = json.loads(out.read_text())
+    assert record["generator"].startswith("harness.join record")
+    assert "MANUAL" not in record["generator"]
+    trailer = shipped.read_text().rstrip("\n").rsplit("\n", 1)[-1]
+    assert record["packet_hash"] in trailer
+    assert record["fence_sha256"] == hashlib.sha256(fence_path.read_bytes()).hexdigest()
+    assert record["wall_clock_seconds"] == 1230
+    assert record["node"] == "base" and record["commit"] == sha
+    assert record["tokens"]["output"] == 1234
+
+
+def test_record_emitter_rejects_trailer_mismatch(tmp_path):
+    from harness import fence as fence_mod
+
+    repo, sha, shipped = make_replayable(tmp_path)
+    plan = join.load_plan(repo / "harness" / "specs")
+    index = build_index(repo, sha)
+    resolved = join.resolve_writes(plan, index)
+    built = fence_mod.build_fence(plan, index, resolved, "base", repo=repo)
+    fence_path = fence_mod.write_fence(built, repo)
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "record", "consumer_a",
+         "--repo", str(repo), "--commit", sha,
+         "--specs", str(repo / "harness" / "specs"),
+         "--packet", str(shipped), "--fence", str(fence_path),
+         "--dispatch-id", "test-2",
+         "--started", "2026-08-07T10:00:00-04:00",
+         "--finished", "2026-08-07T10:01:00-04:00"],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 1
+    assert "mismatch" in result.stderr.lower()
 
 
 # --- the real spec against this repo ---------------------------------------

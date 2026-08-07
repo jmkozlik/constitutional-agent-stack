@@ -460,6 +460,38 @@ def _split_provenance(entry: str) -> tuple:
 AUTHORED_STATUS = "authored (contract — tester-verified, delta-exempt)"
 
 
+def _authored_status(text: str, by_path: dict) -> str:
+    """F20 (ratified, from 3b's D2 filing): an authored line whose subject
+    is <DeclaredType>.<attr> makes a STRUCTURAL claim and presence-checks
+    — 'present' or 'absent' (absent counts outstanding). Behavioral and
+    non-structural authored lines remain exempt; the attestation channel
+    is the backstop, as 3b demonstrated."""
+    cuts = [(text.find(sep), sep) for sep in ("(", " ∈ ", ": ")]
+    cuts = [(i, s) for i, s in cuts if i >= 0]
+    if cuts:
+        i, sep = min(cuts)
+        if sep == "(":
+            return AUTHORED_STATUS  # callable-signature shape: behavioral
+        subject = text[:i].strip()
+    else:
+        subject = text.strip()
+    owner, _, name = subject.rpartition(".")
+    owner_is_class = any(
+        r["kind"] == "class" for r in by_path.get(owner, [])
+    )
+    if not owner_is_class:
+        return AUTHORED_STATUS  # bare type / module prose: behavioral
+    if subject in by_path:
+        return "present"  # property or method record
+    for record in by_path.get(owner, []):
+        if record["kind"] == "class" and any(
+            f == name or f.startswith(f"{name}:") or f.startswith(f"{name} ")
+            for f in record.get("fields") or []
+        ):
+            return "present"
+    return "absent"
+
+
 def _is_alias_entry(entry: str) -> bool:
     """`pkg.mod.Name = expr` — a module-level alias, not a class shape."""
     head = entry.split(" = ", 1)[0]
@@ -546,7 +578,7 @@ def compute_delta(
     for entry in callables:
         text, provenance = _split_provenance(entry)
         if provenance == "authored":
-            callables_delta.append((entry, AUTHORED_STATUS))
+            callables_delta.append((entry, _authored_status(text, by_path)))
             continue
         path, signature = _parse_surface(text)
         records = by_path.get(path, [])
@@ -563,14 +595,14 @@ def compute_delta(
     for entry in types:
         text, provenance = _split_provenance(entry)
         if provenance == "authored":
-            types_delta.append((entry, AUTHORED_STATUS))
+            types_delta.append((entry, _authored_status(text, by_path)))
         else:
             types_delta.append((entry, _match_type_entry(text, by_path)))
     errors_delta = []
     for entry in errors:
         text, provenance = _split_provenance(entry)
         if provenance == "authored":
-            errors_delta.append((entry, AUTHORED_STATUS))
+            errors_delta.append((entry, _authored_status(text, by_path)))
         else:
             errors_delta.append((entry, _match_error_entry(text, by_path)))
     def counts(status):
@@ -685,6 +717,65 @@ def _render_surface(plan: Plan, node_id: str) -> list:
     return lines
 
 
+# F3 (ratified): the artifact contract and request_mem shape live in the
+# packet's protocol section — dispatch prompts stop carrying law the
+# packet should own. Frozen per role, like identity.
+PROTOCOL = {
+    "executor": [
+        "Deliverables (files, harvested before teardown):",
+        "  .harness/out/attestation.md — one section per done_when bullet,",
+        "    headed ATTEST or FILE, each with verbatim command+output evidence.",
+        "  .harness/out/defects.md — every filed defect: what it is filed",
+        "    against, the evidence, what a fix would require. If none: none",
+        "  .harness/scratch/handoff.md — working state for your replacement;",
+        "    verified facts and interpretive claims marked separately.",
+        "Scratch: .harness/scratch/ (throwaway fixtures, notes).",
+        "request_mem (v0 shape): a report line \"REQUEST_MEM: <what and why>\".",
+        "  Blocking: stop and return your report carrying the lines — the",
+        "  dispatcher answers and resumes you. Non-blocking: log and continue.",
+        "  Never guess past a miss; never read around it.",
+        "Fence: writes outside your write scope, .harness/scratch/, and",
+        "  .harness/out/ are violations. On a denial, record it verbatim;",
+        "  do not work around.",
+    ],
+    "tester": [
+        "Deliverables (files, harvested before teardown):",
+        "  .harness/out/tests/ — your fixtures and tests, runnable as written.",
+        "  .harness/out/tester_report.md — one section per guarantee: the",
+        "    discriminating fixture, its expected-now verdict (pass |",
+        "    fail-first), and any guarantee filed as untestable, with evidence.",
+        "  .harness/scratch/handoff.md — working state for your replacement.",
+        "Scratch: .harness/scratch/.",
+        "request_mem (v0 shape): a report line \"REQUEST_MEM: <what and why>\";",
+        "  blocking: stop and return; non-blocking: log and continue.",
+        "The implementation is structurally absent from your packet (P6).",
+        "  Tests invoke only the declared surface. Inventing an interface is",
+        "  a failure even when the guess would match.",
+    ],
+}
+
+# F21 (ratified): the tester's trigger catalog, compiled from SPEC content
+# only — the brief §3 reason/shape table plus the ratified additions. P6
+# untouched: nothing here derives from implementation.
+TRIGGER_CATALOG = [
+    ("subscript_call", "TABLE[key](...)"),
+    ("getattr_call", "getattr(obj, name)(...)  — and bare getattr(obj, name)"),
+    ("attribute_of_call", "factory()(...)"),
+    ("star_import", "from x import *  (anywhere in the file)"),
+    ("dynamic_attribute", "setattr(...) / def __getattr__ / __getattr__ = fn"),
+    ("parse_error", "the file does not parse at the rev"),
+    ("unresolved_import_target", "a from-import unresolvable through a star-importing module"),
+]
+
+
+def _protocol_section(role: str) -> list:
+    return (
+        ["## Protocol  [provenance: fixed]", ""]
+        + PROTOCOL[role]
+        + [""]
+    )
+
+
 def _identity_section(role: str, identities_dir: Path) -> list:
     body = (Path(identities_dir) / f"{role}.md").read_text().rstrip()
     return [
@@ -749,7 +840,7 @@ def assemble_packet(
     dispatch_hash = serialize_plan(
         plan, plan_checks(plan, code_index, resolved)
     ).plan_hash
-    lines = _identity_section(role, identities_dir)
+    lines = _identity_section(role, identities_dir) + _protocol_section(role)
 
     lines += ["## Task  [provenance: spec, verbatim]", "", f"node: {node_id}"]
     if plan.meta.get("language"):
@@ -763,6 +854,18 @@ def assemble_packet(
         if surface_lines:
             lines.append("surface (the only thing your tests may invoke):")
             lines += surface_lines
+        lines.append(
+            "trigger catalog [provenance: spec — brief §3 reason/shape table "
+            "+ ratified additions]:"
+        )
+        for reason, shape in TRIGGER_CATALOG:
+            lines.append(f"  {reason:<26} {shape}")
+        _, type_entries, _ = _surface_sections(node)
+        for entry in type_entries:
+            text, _prov = _split_provenance(entry)
+            if "importer set" in text:
+                lines.append("importer set (ratified definition):")
+                lines.append(f"  {text}")
         lines.append("guarantees to verify (done_when):")
         lines += [f"  - {item}" for item in node["done_when"]]
         lines.append("")
@@ -901,7 +1004,7 @@ def assemble_packet(
         f"{len(surface)} consumed/available interface symbols, and every "
         "recorded caller of your scope. Anything not listed was not searched. "
         "Missing means query (request_mem), never build. "
-        "verify with: python -m pytest"
+        "verify with: .venv/bin/python -m pytest"
     )
     lines.append("")
 
@@ -1056,6 +1159,66 @@ def _cmd_replay(args) -> int:
     return 1
 
 
+def _cmd_record(args) -> int:
+    """3c: the dispatch-record emitter. Composes the record from the real
+    artifacts — packet trailer, fence bytes, recomputed plan hashes — and
+    cross-checks them against the stated dispatch. Retires MANUAL."""
+    import json as _json
+    from datetime import datetime
+
+    packet_text = Path(args.packet).read_text(encoding="utf-8")
+    trailer = packet_text.rstrip("\n").rsplit("\n", 1)[-1]
+    fields = dict(
+        part.split("=", 1) for part in trailer.replace("packet: ", "").split(" ")
+        if "=" in part
+    )
+    from analyzer import gitio
+
+    sha = gitio.resolve_commit(args.repo, args.commit)
+    if fields.get("node") != args.node or fields.get("role") != args.role \
+            or fields.get("commit") != sha:
+        print(
+            "record: trailer mismatch — packet says "
+            f"node={fields.get('node')} role={fields.get('role')} "
+            f"commit={fields.get('commit', '')[:12]}, dispatch says "
+            f"node={args.node} role={args.role} commit={sha[:12]}",
+            file=sys.stderr,
+        )
+        return 1
+    fence_bytes = Path(args.fence).read_bytes()
+    fence = _json.loads(fence_bytes)
+    plan = load_plan(args.specs)
+    index = build_index(args.repo, sha)
+    resolved = resolve_writes(plan, index)
+    dispatch = serialize_plan(plan, plan_checks(plan, index, resolved))
+    started = datetime.fromisoformat(args.started)
+    finished = datetime.fromisoformat(args.finished)
+    record = {
+        "record": "dispatch",
+        "generator": "harness.join record/1",
+        "dispatch_id": args.dispatch_id,
+        "node": args.node,
+        "role": args.role,
+        "commit": sha,
+        "spec_plan_hash": plan.plan_hash,
+        "dispatch_plan_hash": dispatch.plan_hash,
+        "packet_hash": fields.get("packet_hash"),
+        "fence_sha256": hashlib.sha256(fence_bytes).hexdigest(),
+        "fence_allowed": fence.get("allowed"),
+        "started": args.started,
+        "finished": args.finished,
+        "wall_clock_seconds": int((finished - started).total_seconds()),
+        "tokens": {"output": args.tokens_out, "input_incl_cache": args.tokens_in},
+    }
+    out = _json.dumps(record, indent=2, sort_keys=True) + "\n"
+    if args.output:
+        Path(args.output).write_text(out, encoding="utf-8")
+        print(f"record -> {args.output}", file=sys.stderr)
+    else:
+        sys.stdout.write(out)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="harness.join",
@@ -1093,6 +1256,22 @@ def main(argv=None) -> int:
     p_replay.add_argument("--commit", required=True)
     p_replay.add_argument("--shipped", required=True)
     p_replay.set_defaults(func=_cmd_replay)
+
+    p_record = sub.add_parser("record", help="emit the dispatch record from artifacts")
+    p_record.add_argument("node")
+    p_record.add_argument("--role", default="executor", choices=sorted(TOOLS))
+    p_record.add_argument("--repo", default=".")
+    p_record.add_argument("--commit", required=True)
+    p_record.add_argument("--specs", default="harness/specs")
+    p_record.add_argument("--packet", required=True)
+    p_record.add_argument("--fence", required=True)
+    p_record.add_argument("--dispatch-id", required=True)
+    p_record.add_argument("--started", required=True)
+    p_record.add_argument("--finished", required=True)
+    p_record.add_argument("--tokens-out", type=int, default=None)
+    p_record.add_argument("--tokens-in", type=int, default=None)
+    p_record.add_argument("-o", "--output", default=None)
+    p_record.set_defaults(func=_cmd_record)
     p_packet.set_defaults(func=_cmd_packet)
 
     args = parser.parse_args(argv)

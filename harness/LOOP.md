@@ -1,6 +1,20 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-07, after report 004. **3b ran clean with the artifact
+**Updated:** 2026-08-07, after report 005. Ruling bundle applied: **F20
+closed** (structural authored lines presence-check — the D2 rule verbatim,
+locked demo test; affected_symbols honestly shows `delta: 1 outstanding`),
+**F21 closed** (tester trigger catalog, spec-content only), **F22 closed**
+(verify names .venv interpreter), **F3 narrowed** (artifact contract +
+request_mem shape now in the packet's Protocol section — dispatch prompts
+carry no law). **3c built**: `join record` emits dispatch records from
+artifacts; MANUAL retires next dispatch. **D1-B ratified**, spec diff
+PROPOSED (flagged: needs a yes/no on the F20 callable-in-write-scope
+extension; 3d-1 symbol_table / 3d-2 affected_symbols split proposed).
+**F23 filed**: replay anchors spec, not join version. **Next: 3t** —
+blind tester dispatch, fail-first callers_unknowable fixtures — with fresh
+packets + gate (format changed). Then 3d-1 → 3d-2 → W05.
+
+**Previous:** 2026-08-07, after report 004. **3b ran clean with the artifact
 channel proven**: 4 ATTEST / 2 FILE (callers_unknowable unbuilt — expected
 spec-leads-code state), attestation.md + defects.md delivered, fence clean,
 zero writes. F17 closed. 3b's D2 filing sharpened F20 into a ratifiable
