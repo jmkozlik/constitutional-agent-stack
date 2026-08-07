@@ -59,6 +59,8 @@ def build_index(repo: str | Path, commit: str | None) -> dict:
                confidence ("low" iff the file has any unresolved record),
                referenced_by (sites: file, line, in_symbol, kind call|name,
                args as written for calls, ambiguous+note when inexact).
+               Class records additionally carry fields (annotated class-body
+               targets in body order, rendered `name: ann = default`).
                Duplicate dotted paths are legal (property pairs, conditional
                defs); records sharing a path share their referenced_by.
       unresolved: sites whose target is statically undecidable — file, line,

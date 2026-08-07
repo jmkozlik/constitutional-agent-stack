@@ -6,13 +6,16 @@ throws on cycles and write collisions, and prints the parallelism plan.
 
     python3 speccc.py nodes/
 """
-import sys, os, glob, hashlib
+import sys, os, glob, hashlib, re
 from collections import defaultdict
 import yaml
 
 REQUIRED = {"id": str, "one_liner": str, "references": list,
             "writes": list, "done_when": list}
-OPTIONAL = {"open": list, "surface": list}
+# surface (format v0.3): mapping of callables / types / errors lists.
+OPTIONAL = {"open": list, "surface": dict}
+
+_CAMEL = re.compile(r"\b[A-Z][a-z0-9]*[A-Z]\w*\b")
 
 
 class SpecError(Exception):
@@ -141,8 +144,27 @@ def warnings(index):
             out.append(f"[W01] {nid}: undecided - {item}")
         if len(n["references"]) >= 4:
             out.append(f"[W03] {nid}: references {len(n['references'])} nodes, packet may exceed budget")
-        if n["done_when"] and not n.get("surface"):
+        surface = n.get("surface") or {}
+        if n["done_when"] and not surface.get("callables"):
             out.append(f"[W06] {nid}: done_when has no surface to test through")
+        # W07 (v0.3 closure lint): done_when may only name things the
+        # surface carries. Internal-CamelCase tokens catch type/error names
+        # without tripping on sentence-initial capitals.
+        surface_text = " ".join(
+            str(entry) for section in surface.values() for entry in section
+        )
+        flagged = set()
+        for item in n["done_when"]:
+            for token in sorted(set(_CAMEL.findall(item))):
+                if token not in surface_text and token not in flagged:
+                    flagged.add(token)
+                    out.append(
+                        f"[W07] {nid}: done_when names {token} with no surface entry")
+            if re.search(r"\berrors?\b", item, re.I) and not surface.get("errors") \
+                    and "errors-empty" not in flagged:
+                flagged.add("errors-empty")
+                out.append(
+                    f"[W07] {nid}: done_when speaks of an error but surface declares none")
     return out
 
 

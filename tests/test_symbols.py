@@ -107,6 +107,37 @@ def test_class_sig_hash_covers_bases():
     assert a["src.config.C"]["sig_hash"] != b["src.config.C"]["sig_hash"]
 
 
+def test_class_fields_recorded_in_body_order():
+    s = syms(
+        "from dataclasses import dataclass, field\n"
+        "@dataclass\n"
+        "class Row:\n"
+        "    path: str\n"
+        "    detail: str\n"
+        "    callers: list = field(default_factory=list)\n"
+        "    error: bool = False\n"
+        "\n"
+        "    def flag(self):\n"
+        "        return self.error\n"
+    )
+    assert s["src.config.Row"]["fields"] == [
+        "path: str",
+        "detail: str",
+        "callers: list = field(default_factory=list)",
+        "error: bool = False",
+    ]
+
+
+def test_class_without_annotated_fields_has_empty_list():
+    s = syms("class C:\n    def m(self):\n        return 1\n")
+    assert s["src.config.C"]["fields"] == []
+
+
+def test_functions_do_not_carry_fields():
+    s = syms("def f():\n    return 1\n")
+    assert "fields" not in s["src.config.f"]
+
+
 def test_docstring_recorded():
     s = syms('def f():\n    """Load the thing.\n\n    Returns a dict."""\n')
     assert s["src.config.f"]["doc"] == "Load the thing.\n\nReturns a dict."

@@ -101,6 +101,20 @@ def _body_hash(node: ast.AST) -> str:
     return _hash("\n".join(ast.unparse(stmt) for stmt in node.body))
 
 
+def _class_fields(node: ast.ClassDef) -> list[str]:
+    """Annotated class-body targets in body order, rendered like parameters
+    (`name: annotation = default`, defaults verbatim) — the field list a
+    spec surface's type entry seeds from."""
+    fields = []
+    for stmt in node.body:
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            rendered = f"{stmt.target.id}: {ast.unparse(stmt.annotation)}"
+            if stmt.value is not None:
+                rendered += f" = {ast.unparse(stmt.value)}"
+            fields.append(rendered)
+    return fields
+
+
 def _kind(node: ast.AST) -> str:
     if isinstance(node, ast.ClassDef):
         return "class"
@@ -132,8 +146,7 @@ def _visit(node: ast.AST, prefix: str, rel_path: str, records: list[dict]) -> No
             start = child.lineno
             if child.decorator_list:
                 start = min(start, child.decorator_list[0].lineno)
-            records.append(
-                {
+            record = {
                     "path": path,
                     "kind": _kind(child),
                     "file": rel_path,
@@ -151,7 +164,9 @@ def _visit(node: ast.AST, prefix: str, rel_path: str, records: list[dict]) -> No
                     ),
                     "parent": prefix,
                 }
-            )
+            if isinstance(child, ast.ClassDef):
+                record["fields"] = _class_fields(child)
+            records.append(record)
             # TODO(brief open question): nested functions currently get their
             # own entries, dotted through the enclosing function; the
             # alternative is folding them into the parent (their source is

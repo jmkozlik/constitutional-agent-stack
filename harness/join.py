@@ -13,6 +13,7 @@ Run: python -m harness.join plan|packet ...
 import argparse
 import hashlib
 import posixpath
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -70,12 +71,36 @@ def load_plan(specs_dir) -> Plan:
     # speccc validates field types but not element types; a non-string
     # writes entry would traceback deep in plan_hash otherwise.
     for nid, node in index.items():
-        for fieldname in ("references", "writes", "done_when", "open", "surface"):
+        for fieldname in ("references", "writes", "done_when", "open"):
             for item in node.get(fieldname) or []:
                 if not isinstance(item, str):
                     raise JoinError(
                         f"[E01] {nid}: {fieldname} entry {item!r} is not a string"
                     )
+        surface = node.get("surface")
+        if surface is not None:
+            for key, entries in surface.items():
+                if key not in ("callables", "types", "errors"):
+                    raise JoinError(
+                        f"[E01] {nid}: unknown surface section {key!r} "
+                        "(callables|types|errors)"
+                    )
+                if not isinstance(entries, list):
+                    raise JoinError(
+                        f"[E01] {nid}: surface.{key} must be a list"
+                    )
+                for item in entries:
+                    if isinstance(item, dict):
+                        raise JoinError(
+                            f"[E01] {nid}: surface.{key} entry {item!r} was "
+                            "parsed as a mapping — quote entries containing "
+                            "': '"
+                        )
+                    if not isinstance(item, str):
+                        raise JoinError(
+                            f"[E01] {nid}: surface.{key} entry {item!r} is "
+                            "not a string"
+                        )
     speccc.resolve(index)
     speccc.find_cycle(index)
     levels = speccc.levelize(index)
@@ -407,6 +432,71 @@ def _parse_surface(entry: str) -> tuple:
     return entry[:paren].strip(), entry[paren:].strip()
 
 
+def _surface_sections(node: dict) -> tuple:
+    surface = node.get("surface") or {}
+    return (
+        surface.get("callables") or [],
+        surface.get("types") or [],
+        surface.get("errors") or [],
+    )
+
+
+def _is_alias_entry(entry: str) -> bool:
+    """`pkg.mod.Name = expr` — a module-level alias, not a class shape."""
+    head = entry.split(" = ", 1)[0]
+    return " = " in entry and "(" not in head
+
+
+def _init_field_list(by_path: dict, class_path: str) -> str | None:
+    """A constructor-shaped type's field list: the __init__ signature minus
+    self (classes whose state is init-assigned have no class-body fields to
+    seed from, but the index carries their __init__ record — I2)."""
+    for record in by_path.get(f"{class_path}.__init__", []):
+        signature = record["signature"]
+        head, _, rest = signature.partition(" -> ")
+        inner = head.strip()[1:-1]  # drop parens
+        params = inner.split(", ")
+        if params and params[0] == "self":
+            params = params[1:]
+        return f"({', '.join(params)})"
+    return None
+
+
+def _match_type_entry(entry: str, by_path: dict) -> str:
+    if _is_alias_entry(entry):
+        return "unindexed (module-level alias; brief open question)"
+    path, field_sig = _parse_surface(entry)
+    records = [r for r in by_path.get(path, []) if r["kind"] == "class"]
+    if not records:
+        return "absent"
+    if field_sig is None:
+        return "present"
+    for record in records:
+        rendered = f"({', '.join(record.get('fields') or [])})"
+        if field_sig == rendered:
+            return "present"
+    init_rendered = _init_field_list(by_path, path)
+    if init_rendered is not None and field_sig == init_rendered:
+        return "present"
+    return "shape-mismatch"
+
+
+def _match_error_entry(entry: str, by_path: dict) -> str:
+    # First ': ' splits observable from condition — condition prose may
+    # itself contain colons (I3).
+    path = entry.split(": ", 1)[0].strip()
+    if path in by_path:
+        return "present"
+    owner, _, name = path.rpartition(".")
+    for record in by_path.get(owner, []):
+        if record["kind"] == "class" and any(
+            f == name or f.startswith(f"{name}:") or f.startswith(f"{name} ")
+            for f in record.get("fields") or []
+        ):
+            return "present"
+    return "absent"
+
+
 def compute_delta(
     plan: Plan, code_index: dict, resolved: dict, node_id: str, *, repo=None
 ) -> dict:
@@ -432,8 +522,9 @@ def compute_delta(
     for info in resolved[node_id].values():
         for record in info["symbols"]:
             by_path[record["path"]].append(record)
-    surface_delta = []
-    for entry in node.get("surface") or []:
+    callables, types, errors = _surface_sections(node)
+    callables_delta = []
+    for entry in callables:
         path, signature = _parse_surface(entry)
         records = by_path.get(path, [])
         if not records:
@@ -444,14 +535,22 @@ def compute_delta(
             status = "present"
         else:
             status = "signature-mismatch"
-        surface_delta.append((entry, status))
-    outstanding = [e for e, s in writes_delta if s == "to_create"] + [
-        e for e, s in surface_delta if s != "present"
-    ]
-    if not surface_delta:
+        callables_delta.append((entry, status))
+    types_delta = [(e, _match_type_entry(e, by_path)) for e in types]
+    errors_delta = [(e, _match_error_entry(e, by_path)) for e in errors]
+    outstanding = (
+        [e for e, s in writes_delta if s == "to_create"]
+        + [e for e, s in callables_delta if s != "present"]
+        + [e for e, s in types_delta if s not in ("present",) and not s.startswith("unindexed")]
+        + [e for e, s in errors_delta if s != "present"]
+    )
+    if not callables_delta:
         kind = "no_surface"
     elif all(s == "to_create" for _, s in writes_delta) and all(
-        s == "absent" for _, s in surface_delta
+        s == "absent"
+        for _, s in callables_delta
+        + [t for t in types_delta if not t[1].startswith("unindexed")]
+        + errors_delta
     ):
         kind = "full"
     elif not outstanding:
@@ -460,7 +559,9 @@ def compute_delta(
         kind = "partial"
     return {
         "writes": writes_delta,
-        "surface": surface_delta,
+        "callables": callables_delta,
+        "types": types_delta,
+        "errors": errors_delta,
         "outstanding": outstanding,
         "kind": kind,
     }
@@ -480,8 +581,11 @@ def _delta_lines(delta: dict) -> list:
         "handoff-carried]:"
     ]
     lines += ["  writes:"] + [f"    - {e}: {s}" for e, s in delta["writes"]]
-    if delta["surface"]:
-        lines += ["  surface:"] + [f"    - {e}: {s}" for e, s in delta["surface"]]
+    for section in ("callables", "types", "errors"):
+        if delta[section]:
+            lines += [f"  {section}:"] + [
+                f"    - {e}: {s}" for e, s in delta[section]
+            ]
     verdict = _DELTA_VERDICT.get(delta["kind"])
     if verdict is None:
         verdict = (
@@ -503,6 +607,37 @@ def delta_summary(delta: dict) -> str:
 
 
 # --- packet assembly --------------------------------------------------------
+
+
+def _render_surface(plan: Plan, node_id: str) -> list:
+    """The three surface subsections, with foreign types resolved from
+    their owning node's surface at packet build (I5): any other node's
+    type whose terminal name appears in this node's entries rides along,
+    labeled with its owner."""
+    node = plan.nodes[node_id]
+    callables, types, errors = _surface_sections(node)
+    if not (callables or types or errors):
+        return []
+    own_text = " ".join(callables + types)
+    foreign = []
+    for other in sorted(plan.nodes):
+        if other == node_id:
+            continue
+        _, other_types, _ = _surface_sections(plan.nodes[other])
+        for entry in other_types:
+            path, _ = _parse_surface(entry.split(" = ", 1)[0])
+            terminal = path.rsplit(".", 1)[-1]
+            if entry not in types and re.search(
+                rf"\b{re.escape(terminal)}\b", own_text
+            ):
+                foreign.append(f"    - {entry}  [from {other}]")
+    lines = ["  callables:"]
+    lines += [f"    - {e}" for e in callables] or ["    (none declared)"]
+    lines.append("  types:")
+    lines += ([f"    - {e}" for e in types] + foreign) or ["    (none declared)"]
+    lines.append("  errors:")
+    lines += [f"    - {e}" for e in errors] or ["    (none declared)"]
+    return lines
 
 
 def _identity_section(role: str, identities_dir: Path) -> list:
@@ -572,14 +707,15 @@ def assemble_packet(
     lines = _identity_section(role, identities_dir)
 
     lines += ["## Task  [provenance: spec, verbatim]", "", f"node: {node_id}"]
+    surface_lines = _render_surface(plan, node_id)
     if role == "tester":
         # P6/JA7 + v0.2: the tester's packet is the spec node's guarantees
         # plus the declared surface — the one sanctioned seam through which
         # done_when is tested. No writes, no open items, no compiled state:
         # the implementation is structurally absent, not merely elided.
-        if node.get("surface"):
+        if surface_lines:
             lines.append("surface (the only thing your tests may invoke):")
-            lines += [f"  - {entry}" for entry in node["surface"]]
+            lines += surface_lines
         lines.append("guarantees to verify (done_when):")
         lines += [f"  - {item}" for item in node["done_when"]]
         lines.append("")
@@ -588,12 +724,20 @@ def assemble_packet(
     lines.append(f"one_liner: {node['one_liner']}")
     lines.append("write scope (exhaustive — writing anything else is a violation):")
     lines += [f"  - {entry}" for entry in node["writes"]]
-    if node.get("surface"):
+    if surface_lines:
         lines.append("surface (the exported contract done_when is tested through):")
-        lines += [f"  - {entry}" for entry in node["surface"]]
+        lines += surface_lines
     if node.get("open"):
         lines.append("open (undecided — TODO, do not resolve by expanding scope):")
         lines += [f"  - {item}" for item in node["open"]]
+    # Ruling v0.3 clause 1: done_when routes to the executor verbatim,
+    # directly above the DELTA block — the checklist a validation-only
+    # dispatch attests or files against. Supersedes JA7 for done_when only.
+    lines.append(
+        "done_when (attest against, or file against, on a validation-only "
+        "dispatch):"
+    )
+    lines += [f"  - {item}" for item in node["done_when"]]
     lines += [""] + _delta_lines(
         compute_delta(plan, code_index, resolved, node_id, repo=repo)
     )

@@ -484,7 +484,12 @@ SPEC_SURFACED = """
   references: []
   writes: [core/base.py]
   surface:
-    - core.base.ground() -> int
+    callables:
+      - core.base.ground() -> int
+    types:
+      - "core.base.Report(total: int, notes: list = [])"
+    errors:
+      - "core.base.GroundError: raised by ground when the floor is missing"
   done_when:
     - It exists.
 
@@ -493,7 +498,8 @@ SPEC_SURFACED = """
   references: [base]
   writes: [core/a.py]
   surface:
-    - core.a.alpha() -> int
+    callables:
+      - core.a.alpha() -> int
   done_when:
     - It consumes.
 
@@ -506,7 +512,19 @@ SPEC_SURFACED = """
 """
 
 SURFACED_FILES = {
-    "core/base.py": "def ground() -> int:\n    return 0\n",
+    "core/base.py": (
+        "class GroundError(Exception):\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "class Report:\n"
+        "    total: int\n"
+        "    notes: list = []\n"
+        "\n"
+        "\n"
+        "def ground() -> int:\n"
+        "    return 0\n"
+    ),
     "core/a.py": (
         "from core.base import ground\n"
         "def alpha() -> int:\n"
@@ -525,12 +543,16 @@ def test_delta_empty_when_everything_present(tmp_path):
     assert delta["kind"] == "empty"
     (entry, status) = delta["writes"][0]
     assert entry == "core/base.py" and status.startswith("exists@")
-    assert delta["surface"] == [("core.base.ground() -> int", "present")]
+    assert delta["callables"] == [("core.base.ground() -> int", "present")]
+    assert delta["types"] == [
+        ("core.base.Report(total: int, notes: list = [])", "present")
+    ]
+    assert delta["errors"][0][1] == "present"
 
 
 def test_delta_full_on_greenfield(tmp_path):
     spec = SPEC_SURFACED.replace("core/base.py", "core/unbuilt.py").replace(
-        "core.base.ground", "core.unbuilt.ground"
+        "core.base.", "core.unbuilt."
     )
     specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
     plan = join.load_plan(specs)
@@ -539,7 +561,8 @@ def test_delta_full_on_greenfield(tmp_path):
     delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
     assert delta["kind"] == "full"
     assert delta["writes"] == [("core/unbuilt.py", "to_create")]
-    assert delta["surface"] == [("core.unbuilt.ground() -> int", "absent")]
+    assert delta["callables"] == [("core.unbuilt.ground() -> int", "absent")]
+    assert all(s == "absent" for _, s in delta["types"] + delta["errors"])
 
 
 def test_delta_signature_mismatch(tmp_path):
@@ -554,9 +577,96 @@ def test_delta_signature_mismatch(tmp_path):
     resolved = join.resolve_writes(plan, index)
     delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
     assert delta["kind"] == "partial"
-    assert delta["surface"] == [
+    assert delta["callables"] == [
         ("core.base.ground(strict: bool) -> int", "signature-mismatch")
     ]
+
+
+def test_delta_type_shape_mismatch(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        '"core.base.Report(total: int, notes: list = [])"',
+        '"core.base.Report(total: int, wrong: str)"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["types"] == [
+        ("core.base.Report(total: int, wrong: str)", "shape-mismatch")
+    ]
+    assert delta["kind"] == "partial"
+
+
+def test_delta_constructor_shaped_type_matches_init(tmp_path):
+    files = {
+        **SURFACED_FILES,
+        "core/base.py": SURFACED_FILES["core/base.py"].replace(
+            "class Report:\n    total: int\n    notes: list = []\n",
+            "class Report:\n    def __init__(self, total: int, notes: list = []):\n"
+            "        self.total = total\n"
+            "        self.notes = notes\n",
+        ),
+    }
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, files)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["types"][0][1] == "present"
+
+
+def test_delta_alias_type_is_unindexed_never_outstanding(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        '"core.base.Report(total: int, notes: list = [])"',
+        '"core.base.Span = tuple[int, int]"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    (entry, status) = delta["types"][0]
+    assert status.startswith("unindexed")
+    assert delta["kind"] == "empty"
+
+
+def test_delta_error_via_field_path(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        '"core.base.GroundError: raised by ground when the floor is missing"',
+        '"core.base.Report.total: nonzero when grounding failed"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["errors"][0][1] == "present"
+    assert delta["kind"] == "empty"
+
+
+def test_delta_error_condition_may_contain_colons(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        "raised by ground when the floor is missing",
+        "raised when git says: fatal: not a repository",
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["errors"][0][1] == "present"
+
+
+def test_unquoted_error_entry_is_clean_e01(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        '"core.base.GroundError: raised by ground when the floor is missing"',
+        "core.base.GroundError: raised by ground when the floor is missing",
+    )
+    specs, _ = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    with pytest.raises(join.JoinError) as err:
+        join.load_plan(specs)
+    assert "quote" in str(err.value).lower()
 
 
 def test_delta_without_surface_not_computable(tmp_path):
@@ -581,6 +691,38 @@ def test_executor_packet_carries_delta_block(tmp_path):
     assert "surface is what makes" in packet
     assert "exists@" in packet
     assert "validation-only dispatch" in packet
+
+
+def test_executor_done_when_sits_above_delta(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    packet = join.assemble_packet(
+        plan, index, resolved, "base", "executor",
+        identities_dir=PROJECT_ROOT / "harness" / "identities", repo=repo,
+    )
+    checklist = packet.index("done_when (attest against")
+    assert packet.index("It exists.") > checklist
+    assert checklist < packet.index("delta [compiled at dispatch")
+    assert packet.index("It exists.") < packet.index("delta [compiled at dispatch")
+
+
+def test_foreign_type_resolves_from_owning_node(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        "callables:\n      - core.a.alpha() -> int",
+        'callables:\n      - "core.a.alpha() -> Report"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    packet = join.assemble_packet(
+        plan, index, resolved, "consumer_a", "executor",
+        identities_dir=PROJECT_ROOT / "harness" / "identities", repo=repo,
+    )
+    assert "core.base.Report(total: int, notes: list = [])" in packet
+    assert "[from base]" in packet
 
 
 def test_tester_packet_carries_surface_only(tmp_path):
@@ -624,6 +766,7 @@ def test_real_spec_resolves_against_this_repo():
     index = build_index(PROJECT_ROOT, None)
     resolved = join.resolve_writes(plan, index)
     assert set(resolved) == {
+        "gitio",
         "symbol_table",
         "reference_map",
         "unresolved_sites",
