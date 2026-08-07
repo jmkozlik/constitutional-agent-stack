@@ -12,7 +12,7 @@ import yaml
 
 REQUIRED = {"id": str, "one_liner": str, "references": list,
             "writes": list, "done_when": list}
-OPTIONAL = {"open": list}
+OPTIONAL = {"open": list, "surface": list}
 
 
 class SpecError(Exception):
@@ -141,6 +141,8 @@ def warnings(index):
             out.append(f"[W01] {nid}: undecided - {item}")
         if len(n["references"]) >= 4:
             out.append(f"[W03] {nid}: references {len(n['references'])} nodes, packet may exceed budget")
+        if n["done_when"] and not n.get("surface"):
+            out.append(f"[W06] {nid}: done_when has no surface to test through")
     return out
 
 

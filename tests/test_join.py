@@ -285,7 +285,9 @@ def test_tester_packet_is_spec_only():
     assert "done_when" in packet or "guarantees" in packet
     assert "## State — compiled" not in packet
     assert "analyzer/affected.py" not in packet  # no writes list (JA7)
-    assert "compute_affected" not in packet  # no implementation leak
+    # v0.2: the declared surface is the ONE sanctioned shared seam — the
+    # tester may see it (it's spec, not implementation). Nothing else leaks.
+    assert "render_report" not in packet or "surface" in packet
 
 
 def test_packet_hash_covers_body():
@@ -452,6 +454,146 @@ def test_ambiguous_only_attribution_is_marked(tmp_path):
         identities_dir=PROJECT_ROOT / "harness" / "identities",
     )
     assert "ambiguous attribution" in packet
+
+
+# --- spec format v0.2: compiled delta (surface x index) ---------------------
+
+SPEC_SURFACED = """
+- id: base
+  one_liner: The base module.
+  references: []
+  writes: [core/base.py]
+  surface:
+    - core.base.ground() -> int
+  done_when:
+    - It exists.
+
+- id: consumer_a
+  one_liner: Consumes base.
+  references: [base]
+  writes: [core/a.py]
+  surface:
+    - core.a.alpha() -> int
+  done_when:
+    - It consumes.
+
+- id: consumer_b
+  one_liner: Also consumes base.
+  references: [base]
+  writes: [core/b.py]
+  done_when:
+    - It also consumes.
+"""
+
+SURFACED_FILES = {
+    "core/base.py": "def ground() -> int:\n    return 0\n",
+    "core/a.py": (
+        "from core.base import ground\n"
+        "def alpha() -> int:\n"
+        "    return ground() + 1\n"
+    ),
+    "core/b.py": "def beta():\n    return 2\n",
+}
+
+
+def test_delta_empty_when_everything_present(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["kind"] == "empty"
+    (entry, status) = delta["writes"][0]
+    assert entry == "core/base.py" and status.startswith("exists@")
+    assert delta["surface"] == [("core.base.ground() -> int", "present")]
+
+
+def test_delta_full_on_greenfield(tmp_path):
+    spec = SPEC_SURFACED.replace("core/base.py", "core/unbuilt.py").replace(
+        "core.base.ground", "core.unbuilt.ground"
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["kind"] == "full"
+    assert delta["writes"] == [("core/unbuilt.py", "to_create")]
+    assert delta["surface"] == [("core.unbuilt.ground() -> int", "absent")]
+
+
+def test_delta_signature_mismatch(tmp_path):
+    # Annotated signatures contain ": " and must be quoted in YAML.
+    spec = SPEC_SURFACED.replace(
+        "- core.base.ground() -> int",
+        '- "core.base.ground(strict: bool) -> int"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["kind"] == "partial"
+    assert delta["surface"] == [
+        ("core.base.ground(strict: bool) -> int", "signature-mismatch")
+    ]
+
+
+def test_delta_without_surface_not_computable(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "consumer_b", repo=repo)
+    assert delta["kind"] == "no_surface"
+
+
+def test_executor_packet_carries_delta_block(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    packet = join.assemble_packet(
+        plan, index, resolved, "base", "executor",
+        identities_dir=PROJECT_ROOT / "harness" / "identities", repo=repo,
+    )
+    assert "delta" in packet and "compiled at dispatch" in packet
+    assert "surface is what makes" in packet
+    assert "exists@" in packet
+    assert "validation-only dispatch" in packet
+
+
+def test_tester_packet_carries_surface_only(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    packet = join.assemble_packet(
+        plan, index, resolved, "base", "executor",
+        identities_dir=PROJECT_ROOT / "harness" / "identities", repo=repo,
+    )
+    tester = join.assemble_packet(
+        plan, index, resolved, "base", "tester",
+        identities_dir=PROJECT_ROOT / "harness" / "identities", repo=repo,
+    )
+    assert "core.base.ground() -> int" in tester
+    assert "guarantees to verify" in tester
+    assert "## State — compiled" not in tester
+    assert "core/base.py" not in tester  # writes stay executor-only
+    assert "delta" not in tester  # the delta is the executor's work statement
+
+
+def test_plan_output_shows_delta_summary(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "plan", "--specs", str(specs),
+         "--repo", str(repo)],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "delta: empty (validation-only)" in result.stdout
+    assert "[W06]" in result.stdout  # consumer_b: done_when with no surface
 
 
 # --- the real spec against this repo ---------------------------------------

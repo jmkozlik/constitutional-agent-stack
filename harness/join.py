@@ -70,7 +70,7 @@ def load_plan(specs_dir) -> Plan:
     # speccc validates field types but not element types; a non-string
     # writes entry would traceback deep in plan_hash otherwise.
     for nid, node in index.items():
-        for fieldname in ("references", "writes", "done_when", "open"):
+        for fieldname in ("references", "writes", "done_when", "open", "surface"):
             for item in node.get(fieldname) or []:
                 if not isinstance(item, str):
                     raise JoinError(
@@ -396,6 +396,112 @@ def serialize_plan(plan: Plan, findings: list) -> AdjustedPlan:
     return AdjustedPlan(levels=adjusted, plan_hash=digest.hexdigest()[:12])
 
 
+# --- the compiled delta (spec format v0.2) ----------------------------------
+
+
+def _parse_surface(entry: str) -> tuple:
+    """'pkg.mod.fn(x: int) -> int' -> ('pkg.mod.fn', '(x: int) -> int')."""
+    paren = entry.find("(")
+    if paren < 0:
+        return entry.strip(), None
+    return entry[:paren].strip(), entry[paren:].strip()
+
+
+def compute_delta(
+    plan: Plan, code_index: dict, resolved: dict, node_id: str, *, repo=None
+) -> dict:
+    """The work statement, compiled at dispatch from surface x index —
+    never spec-authored, never handoff-carried (format v0.2). The spec
+    stays a declarative end-state; the delta is the distance between
+    that end-state and the pinned commit."""
+    node = plan.nodes[node_id]
+    writes_delta = []
+    for entry, info in resolved[node_id].items():
+        if info["status"] == "to_create":
+            writes_delta.append((entry, "to_create"))
+        elif info["status"] == "opaque":
+            writes_delta.append((entry, "opaque (not indexed)"))
+        else:
+            source = _source_of(repo, code_index["commit"], entry)
+            if source is None:
+                writes_delta.append((entry, "exists"))
+            else:
+                digest = hashlib.sha256(source.encode()).hexdigest()[:8]
+                writes_delta.append((entry, f"exists@{digest}"))
+    by_path: dict[str, list[dict]] = defaultdict(list)
+    for info in resolved[node_id].values():
+        for record in info["symbols"]:
+            by_path[record["path"]].append(record)
+    surface_delta = []
+    for entry in node.get("surface") or []:
+        path, signature = _parse_surface(entry)
+        records = by_path.get(path, [])
+        if not records:
+            status = "absent"
+        elif signature is None or any(
+            r["signature"] == signature for r in records
+        ):
+            status = "present"
+        else:
+            status = "signature-mismatch"
+        surface_delta.append((entry, status))
+    outstanding = [e for e, s in writes_delta if s == "to_create"] + [
+        e for e, s in surface_delta if s != "present"
+    ]
+    if not surface_delta:
+        kind = "no_surface"
+    elif all(s == "to_create" for _, s in writes_delta) and all(
+        s == "absent" for _, s in surface_delta
+    ):
+        kind = "full"
+    elif not outstanding:
+        kind = "empty"
+    else:
+        kind = "partial"
+    return {
+        "writes": writes_delta,
+        "surface": surface_delta,
+        "outstanding": outstanding,
+        "kind": kind,
+    }
+
+
+_DELTA_VERDICT = {
+    "empty": "=> empty delta — validation-only dispatch",
+    "full": "=> full delta — greenfield build",
+    "no_surface": "=> delta not computable: node declares no surface (W06)",
+}
+
+
+def _delta_lines(delta: dict) -> list:
+    lines = [
+        "delta [compiled at dispatch from surface x index — surface is what "
+        "makes the delta computable; it is never spec-authored and never "
+        "handoff-carried]:"
+    ]
+    lines += ["  writes:"] + [f"    - {e}: {s}" for e, s in delta["writes"]]
+    if delta["surface"]:
+        lines += ["  surface:"] + [f"    - {e}: {s}" for e, s in delta["surface"]]
+    verdict = _DELTA_VERDICT.get(delta["kind"])
+    if verdict is None:
+        verdict = (
+            f"=> {len(delta['outstanding'])} outstanding: "
+            + ", ".join(delta["outstanding"])
+        )
+    lines.append(f"  {verdict}")
+    return lines
+
+
+def delta_summary(delta: dict) -> str:
+    if delta["kind"] == "empty":
+        return "delta: empty (validation-only)"
+    if delta["kind"] == "full":
+        return "delta: full (greenfield)"
+    if delta["kind"] == "no_surface":
+        return "delta: not computable (no surface)"
+    return f"delta: {len(delta['outstanding'])} outstanding"
+
+
 # --- packet assembly --------------------------------------------------------
 
 
@@ -467,9 +573,13 @@ def assemble_packet(
 
     lines += ["## Task  [provenance: spec, verbatim]", "", f"node: {node_id}"]
     if role == "tester":
-        # P6/JA7: the tester's packet is the spec node's guarantees alone —
-        # no one_liner, writes, open items, and no compiled state. The
-        # implementation is structurally absent, not merely elided.
+        # P6/JA7 + v0.2: the tester's packet is the spec node's guarantees
+        # plus the declared surface — the one sanctioned seam through which
+        # done_when is tested. No writes, no open items, no compiled state:
+        # the implementation is structurally absent, not merely elided.
+        if node.get("surface"):
+            lines.append("surface (the only thing your tests may invoke):")
+            lines += [f"  - {entry}" for entry in node["surface"]]
         lines.append("guarantees to verify (done_when):")
         lines += [f"  - {item}" for item in node["done_when"]]
         lines.append("")
@@ -478,9 +588,15 @@ def assemble_packet(
     lines.append(f"one_liner: {node['one_liner']}")
     lines.append("write scope (exhaustive — writing anything else is a violation):")
     lines += [f"  - {entry}" for entry in node["writes"]]
+    if node.get("surface"):
+        lines.append("surface (the exported contract done_when is tested through):")
+        lines += [f"  - {entry}" for entry in node["surface"]]
     if node.get("open"):
         lines.append("open (undecided — TODO, do not resolve by expanding scope):")
         lines += [f"  - {item}" for item in node["open"]]
+    lines += [""] + _delta_lines(
+        compute_delta(plan, code_index, resolved, node_id, repo=repo)
+    )
     lines.append("")
 
     lines += [f"## State — compiled  [provenance: verified at {ref}]", ""]
@@ -641,11 +757,17 @@ def _cmd_plan(args) -> int:
             }
             notes = [e for e, s in statuses.items() if s != "indexed"]
             note = f"  [{', '.join(f'{e}: {statuses[e]}' for e in notes)}]" if notes else ""
-            print(f"    - {nid}{note}")
-    if findings:
-        print(f"\n{len(findings)} findings")
+            summary = delta_summary(
+                compute_delta(plan, index, resolved, nid, repo=args.repo)
+            )
+            print(f"    - {nid}{note}  [{summary}]")
+    warns = speccc.warnings(plan.nodes)
+    if findings or warns:
+        print(f"\n{len(findings) + len(warns)} findings")
         for finding in findings:
             print(f"  {finding.message}")
+        for warn in warns:
+            print(f"  {warn}")
     return 1 if any(f.is_error for f in findings) else 0
 
 

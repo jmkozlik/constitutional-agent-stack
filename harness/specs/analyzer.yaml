@@ -19,6 +19,12 @@
              with its location, signature, and separate hashes for signature and body.
   references: []
   writes: [analyzer/modpath.py, analyzer/symbols.py, analyzer/indexer.py]
+  surface:
+    - "analyzer.indexer.build_index(repo: str | Path, commit: str | None) -> dict"
+    - "analyzer.indexer.serialize(index: dict) -> str"
+    - "analyzer.indexer.load_index(path: str | Path) -> dict"
+    - "analyzer.indexer.IndexLoadError(Exception)"
+    - "analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]"
   done_when:
     - Indexing the same commit twice produces byte identical output.
     - Given a symbol path, returns its definition and signature.
@@ -33,6 +39,11 @@
              written at the call site.
   references: [symbol_table]
   writes: [analyzer/refs.py]
+  surface:
+    - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]"
+    - "analyzer.refs.Resolver"
+    - "analyzer.refs.ImportTable"
+    - "analyzer.refs.ImportTable.from_module(cls, tree: ast.Module, module_path: str, *, is_package: bool = False) -> 'ImportTable'"
   done_when:
     - Given a symbol, returns every caller with file, line, and enclosing symbol.
     - Call site arguments are recorded as written, never traced to their origin.
@@ -43,6 +54,8 @@
              and marks the symbols around it low confidence.
   references: [symbol_table, reference_map]
   writes: [analyzer/refs.py]
+  surface:
+    - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]"
   done_when:
     - A registry lookup or getattr call produces a record, never a silent skip.
     - Symbols in a file containing an unresolved site are marked low confidence.
@@ -53,6 +66,14 @@
              was to the signature, the body, or only line positions.
   references: [symbol_table, reference_map]
   writes: [analyzer/affected.py, analyzer/gitio.py]
+  surface:
+    - "analyzer.affected.compute_affected(repo, old_rev: str, new_rev: str) -> AffectedReport"
+    - "analyzer.affected.render_report(report: AffectedReport, out=sys.stdout) -> None"
+    - "analyzer.gitio.changed_files(repo: str | Path, old: str, new: str) -> dict[str, tuple[list[Range], list[Range]]]"
+    - "analyzer.gitio.list_py_files(repo: str | Path, rev: str) -> list[str]"
+    - "analyzer.gitio.read_files(repo: str | Path, rev: str, paths: list[str]) -> dict[str, bytes]"
+    - "analyzer.gitio.resolve_commit(repo: str | Path, rev: str) -> str"
+    - "analyzer.gitio.GitError(Exception)"
   done_when:
     - An import added at the top of a file reports every symbol as moved, nothing as changed.
     - A body only change does not report callers as affected.
@@ -63,6 +84,8 @@
   one_liner: Command line entry point exposing index, symbol, affected, and unresolved.
   references: [affected_symbols, unresolved_sites]
   writes: [analyzer/cli.py, analyzer/__main__.py]
+  surface:
+    - "analyzer.cli.main(argv=None) -> int"
   done_when:
     - index runs on a 20k line repo in under 10 seconds.
     - Every subcommand works against a saved index file without reindexing.
