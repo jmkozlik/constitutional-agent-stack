@@ -41,6 +41,7 @@ class Plan:
     nodes: dict
     levels: dict
     plan_hash: str
+    meta: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -66,7 +67,7 @@ def load_plan(specs_dir) -> Plan:
         raise JoinError(f"specs dir {str(specs)!r} does not exist")
     if not sorted(specs.glob("*.yaml")):
         raise JoinError(f"specs dir {str(specs)!r} contains no *.yaml files")
-    nodes, origin = speccc.load(str(specs_dir))
+    nodes, origin, meta = speccc.load(str(specs_dir))
     index = speccc.validate(nodes, origin)
     # speccc validates field types but not element types; a non-string
     # writes entry would traceback deep in plan_hash otherwise.
@@ -109,6 +110,7 @@ def load_plan(specs_dir) -> Plan:
         nodes=index,
         levels={lv: list(ids) for lv, ids in levels.items()},
         plan_hash=speccc.plan_hash(index, levels),
+        meta=meta,
     )
 
 
@@ -441,6 +443,23 @@ def _surface_sections(node: dict) -> tuple:
     )
 
 
+_PROVENANCE = re.compile(r"\s*\[(seeded|authored)\]\s*$")
+
+
+def _split_provenance(entry: str) -> tuple:
+    """Format v0.4: every surface line is marked seeded | authored. Only
+    seeded lines participate in the byte-for-byte no-invention proof;
+    authored lines are contract — the tester's fixtures verify them, the
+    delta cannot. Unmarked lines default to seeded."""
+    match = _PROVENANCE.search(entry)
+    if match:
+        return entry[: match.start()].strip(), match.group(1)
+    return entry.strip(), "seeded"
+
+
+AUTHORED_STATUS = "authored (contract — tester-verified, delta-exempt)"
+
+
 def _is_alias_entry(entry: str) -> bool:
     """`pkg.mod.Name = expr` — a module-level alias, not a class shape."""
     head = entry.split(" = ", 1)[0]
@@ -525,7 +544,11 @@ def compute_delta(
     callables, types, errors = _surface_sections(node)
     callables_delta = []
     for entry in callables:
-        path, signature = _parse_surface(entry)
+        text, provenance = _split_provenance(entry)
+        if provenance == "authored":
+            callables_delta.append((entry, AUTHORED_STATUS))
+            continue
+        path, signature = _parse_surface(text)
         records = by_path.get(path, [])
         if not records:
             status = "absent"
@@ -536,21 +559,42 @@ def compute_delta(
         else:
             status = "signature-mismatch"
         callables_delta.append((entry, status))
-    types_delta = [(e, _match_type_entry(e, by_path)) for e in types]
-    errors_delta = [(e, _match_error_entry(e, by_path)) for e in errors]
+    types_delta = []
+    for entry in types:
+        text, provenance = _split_provenance(entry)
+        if provenance == "authored":
+            types_delta.append((entry, AUTHORED_STATUS))
+        else:
+            types_delta.append((entry, _match_type_entry(text, by_path)))
+    errors_delta = []
+    for entry in errors:
+        text, provenance = _split_provenance(entry)
+        if provenance == "authored":
+            errors_delta.append((entry, AUTHORED_STATUS))
+        else:
+            errors_delta.append((entry, _match_error_entry(text, by_path)))
+    def counts(status):
+        return status not in ("present", AUTHORED_STATUS) and not status.startswith(
+            "unindexed"
+        )
+
     outstanding = (
         [e for e, s in writes_delta if s == "to_create"]
-        + [e for e, s in callables_delta if s != "present"]
-        + [e for e, s in types_delta if s not in ("present",) and not s.startswith("unindexed")]
-        + [e for e, s in errors_delta if s != "present"]
+        + [e for e, s in callables_delta if counts(s)]
+        + [e for e, s in types_delta if counts(s)]
+        + [e for e, s in errors_delta if counts(s)]
     )
+    verifiable = [
+        s
+        for _, s in callables_delta + types_delta + errors_delta
+        if s != AUTHORED_STATUS and not s.startswith("unindexed")
+    ]
     if not callables_delta:
         kind = "no_surface"
-    elif all(s == "to_create" for _, s in writes_delta) and all(
-        s == "absent"
-        for _, s in callables_delta
-        + [t for t in types_delta if not t[1].startswith("unindexed")]
-        + errors_delta
+    elif (
+        all(s == "to_create" for _, s in writes_delta)
+        and verifiable
+        and all(s == "absent" for s in verifiable)
     ):
         kind = "full"
     elif not outstanding:
@@ -625,7 +669,8 @@ def _render_surface(plan: Plan, node_id: str) -> list:
             continue
         _, other_types, _ = _surface_sections(plan.nodes[other])
         for entry in other_types:
-            path, _ = _parse_surface(entry.split(" = ", 1)[0])
+            text, _prov = _split_provenance(entry)
+            path, _ = _parse_surface(text.split(" = ", 1)[0])
             terminal = path.rsplit(".", 1)[-1]
             if entry not in types and re.search(
                 rf"\b{re.escape(terminal)}\b", own_text
@@ -707,6 +752,8 @@ def assemble_packet(
     lines = _identity_section(role, identities_dir)
 
     lines += ["## Task  [provenance: spec, verbatim]", "", f"node: {node_id}"]
+    if plan.meta.get("language"):
+        lines.append(f"language: {plan.meta['language']}")
     surface_lines = _render_surface(plan, node_id)
     if role == "tester":
         # P6/JA7 + v0.2: the tester's packet is the spec node's guarantees

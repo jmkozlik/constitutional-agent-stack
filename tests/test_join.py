@@ -758,6 +758,57 @@ def test_plan_output_shows_delta_summary(tmp_path):
     assert "[W06]" in result.stdout  # consumer_b: done_when with no surface
 
 
+# --- format v0.4: provenance split + spec meta -------------------------------
+
+
+def test_authored_entries_are_delta_exempt(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        'types:\n      - "core.base.Report(total: int, notes: list = [])"',
+        'types:\n'
+        '      - "core.base.Report(total: int, notes: list = [])  [seeded]"\n'
+        '      - "core.base.Report.total ∈ small | large  [authored]"\n'
+        '      - "core.base.record(path: str, line: int)  [authored]"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    statuses = dict(delta["types"])
+    assert statuses["core.base.Report(total: int, notes: list = [])  [seeded]"] == "present"
+    assert "authored" in statuses["core.base.Report.total ∈ small | large  [authored]"]
+    assert "authored" in statuses["core.base.record(path: str, line: int)  [authored]"]
+    assert delta["kind"] == "empty"  # authored lines never count outstanding
+
+
+def test_seeded_mismatch_still_fails_delta(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        '"core.base.Report(total: int, notes: list = [])"',
+        '"core.base.Report(total: int, wrong: str)  [seeded]"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    assert delta["kind"] == "partial"
+
+
+def test_meta_language_renders_in_both_packets(tmp_path):
+    spec = "- language: python\n" + SPEC_SURFACED
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    assert plan.meta == {"language": "python"}
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    for role in ("executor", "tester"):
+        packet = join.assemble_packet(
+            plan, index, resolved, "base", role,
+            identities_dir=PROJECT_ROOT / "harness" / "identities", repo=repo,
+        )
+        assert "language: python" in packet
+
+
 # --- the real spec against this repo ---------------------------------------
 
 

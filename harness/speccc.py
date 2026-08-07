@@ -15,8 +15,6 @@ REQUIRED = {"id": str, "one_liner": str, "references": list,
 # surface (format v0.3): mapping of callables / types / errors lists.
 OPTIONAL = {"open": list, "surface": dict}
 
-_CAMEL = re.compile(r"\b[A-Z][a-z0-9]*[A-Z]\w*\b")
-
 
 class SpecError(Exception):
     def __init__(self, code, msg):
@@ -25,7 +23,7 @@ class SpecError(Exception):
 
 
 def load(spec_dir):
-    nodes, origin = [], {}
+    nodes, origin, meta = [], {}, {}
     for path in sorted(glob.glob(os.path.join(spec_dir, "*.yaml"))):
         with open(path) as f:
             try:
@@ -35,9 +33,14 @@ def load(spec_dir):
         if not isinstance(docs, list):
             raise SpecError("E01", f"{path}: top level must be a list of nodes")
         for n in docs:
+            # Spec-level meta rides as single-key items with no id
+            # (format v0.4): e.g. `- language: python`.
+            if isinstance(n, dict) and "id" not in n and len(n) == 1:
+                meta.update(n)
+                continue
             nodes.append(n)
             origin[n.get("id", "<no id>")] = os.path.basename(path)
-    return nodes, origin
+    return nodes, origin, meta
 
 
 def validate(nodes, origin):
@@ -147,25 +150,32 @@ def warnings(index):
         surface = n.get("surface") or {}
         if n["done_when"] and not surface.get("callables"):
             out.append(f"[W06] {nid}: done_when has no surface to test through")
-        # W07 (v0.3 closure lint): done_when may only name things the
-        # surface carries. Internal-CamelCase tokens catch type/error names
-        # without tripping on sentence-initial capitals.
-        surface_text = " ".join(
-            str(entry) for section in surface.values() for entry in section
-        )
-        flagged = set()
+        # W07 (v0.4 closure lint): anchor-presence — every done_when bullet
+        # must name at least one surface entry (callable, type, or error),
+        # matched by the entry's terminal name with word boundaries. No NLP.
+        anchors = set()
+        for section in surface.values():
+            for entry in section:
+                anchors.add(_anchor_name(str(entry)))
         for item in n["done_when"]:
-            for token in sorted(set(_CAMEL.findall(item))):
-                if token not in surface_text and token not in flagged:
-                    flagged.add(token)
-                    out.append(
-                        f"[W07] {nid}: done_when names {token} with no surface entry")
-            if re.search(r"\berrors?\b", item, re.I) and not surface.get("errors") \
-                    and "errors-empty" not in flagged:
-                flagged.add("errors-empty")
+            if not any(
+                re.search(rf"\b{re.escape(a)}\b", item) for a in anchors if a
+            ):
                 out.append(
-                    f"[W07] {nid}: done_when speaks of an error but surface declares none")
+                    f"[W07] {nid}: done_when bullet has no anchor in surface: "
+                    f"\"{item}\"")
     return out
+
+
+def _anchor_name(entry):
+    """Terminal name of a surface entry: strip the provenance tag, cut at
+    the first of '(', ' ∈ ', ' = ', ': ', take the last dotted segment."""
+    text = re.sub(r"\s*\[(seeded|authored)\]\s*$", "", entry).strip()
+    for sep in ("(", " ∈ ", " = ", ": "):
+        cut = text.find(sep)
+        if cut >= 0:
+            text = text[:cut]
+    return text.strip().rsplit(".", 1)[-1]
 
 
 def plan_hash(index, levels):
@@ -177,7 +187,7 @@ def plan_hash(index, levels):
 
 
 def main(spec_dir):
-    nodes, origin = load(spec_dir)
+    nodes, origin, meta = load(spec_dir)
     index = validate(nodes, origin)
     resolve(index)
     find_cycle(index)

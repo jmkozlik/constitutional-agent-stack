@@ -1,13 +1,13 @@
-# The v0 analyzer, in spec format v0.3 (surface: callables/types/errors;
-# done_when routed to both roles; delta compiled at dispatch).
-# Coarse on purpose. Nodes get split later, when miss telemetry says they should.
-#
-# Reconciliation history: writes were aligned to the as-built repo on
-# 2026-08-06 (see git history). 2026-08-07 (v0.3 ruling 3): gitio extracted
-# into its own atom node with real edges from its consumers; surface entries
-# seeded byte-for-byte from the index; error conditions authored per-callable.
-# affected_symbols' errors section is EMPTY pending ratification of the
-# guarantee-4 error surface (W07 fires there by design).
+# The v0 analyzer, in spec format v0.4.
+# Surface lines are marked [seeded] (byte-for-byte from the index — the
+# no-invention proof) or [authored] (contract — verified by tester fixtures,
+# not by the delta). W07 = anchor-presence: every done_when bullet must name
+# at least one surface entry. Known W07s on original bullets are left to
+# print — the plan does not hide unanchored guarantees.
+# W05 restructure (index_assembly node) is ratified but sequenced after
+# step 3; until it lands the refs W05 stays printed.
+
+- language: python
 
 - id: gitio
   one_liner: Git plumbing for the analyzer - file listings, blob contents, and
@@ -16,17 +16,17 @@
   writes: [analyzer/gitio.py]
   surface:
     callables:
-      - "analyzer.gitio.changed_files(repo: str | Path, old: str, new: str) -> dict[str, tuple[list[Range], list[Range]]]"
-      - "analyzer.gitio.list_py_files(repo: str | Path, rev: str) -> list[str]"
-      - "analyzer.gitio.read_files(repo: str | Path, rev: str, paths: list[str]) -> dict[str, bytes]"
-      - "analyzer.gitio.resolve_commit(repo: str | Path, rev: str) -> str"
+      - "analyzer.gitio.changed_files(repo: str | Path, old: str, new: str) -> dict[str, tuple[list[Range], list[Range]]]  [seeded]"
+      - "analyzer.gitio.list_py_files(repo: str | Path, rev: str) -> list[str]  [seeded]"
+      - "analyzer.gitio.read_files(repo: str | Path, rev: str, paths: list[str]) -> dict[str, bytes]  [seeded]"
+      - "analyzer.gitio.resolve_commit(repo: str | Path, rev: str) -> str  [seeded]"
     types:
-      - "analyzer.gitio.Range = tuple[int, int]"
+      - "analyzer.gitio.Range = tuple[int, int]  [authored]"
     errors:
-      - "analyzer.gitio.GitError: raised by every callable when the underlying git command exits non-zero, naming the failed command"
+      - "analyzer.gitio.GitError: raised by every callable when the underlying git command exits non-zero, naming the failed command  [seeded]"
   done_when:
-    - Blob contents and file listings come from git objects, never a checkout.
-    - A renamed file surfaces as a delete plus an add, never a rename.
+    - read_files and list_py_files answer from git objects, never a checkout.
+    - changed_files surfaces a renamed file as a delete plus an add, never a rename.
     - A failing git command raises GitError, never a silent empty result.
 
 - id: symbol_table
@@ -36,16 +36,18 @@
   writes: [analyzer/modpath.py, analyzer/symbols.py, analyzer/indexer.py]
   surface:
     callables:
-      - "analyzer.indexer.build_index(repo: str | Path, commit: str | None) -> dict"
-      - "analyzer.indexer.serialize(index: dict) -> str"
-      - "analyzer.indexer.load_index(path: str | Path) -> dict"
-      - "analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]"
+      - "analyzer.indexer.build_index(repo: str | Path, commit: str | None) -> dict  [seeded]"
+      - "analyzer.indexer.serialize(index: dict) -> str  [seeded]"
+      - "analyzer.indexer.load_index(path: str | Path) -> dict  [seeded]"
+      - "analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]  [seeded]"
+    types:
+      - "analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]"
     errors:
-      - "analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; build_index instead records an unresolved site with reason parse_error"
-      - "analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged"
+      - "analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; build_index instead records an unresolved site with reason parse_error  [seeded]"
+      - "analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]"
   done_when:
     - Indexing the same commit twice produces byte identical output.
-    - Given a symbol path, returns its definition and signature.
+    - The emitted index maps every symbol path to a record carrying its definition location and signature.
     - Reformatting whitespace does not change the body hash.
     - Ranges are recomputed per commit, never stored as identity.
   open:
@@ -59,11 +61,11 @@
   writes: [analyzer/refs.py]
   surface:
     callables:
-      - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]"
-      - "analyzer.refs.ImportTable.from_module(cls, tree: ast.Module, module_path: str, *, is_package: bool = False) -> 'ImportTable'"
+      - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]  [seeded]"
+      - "analyzer.refs.ImportTable.from_module(cls, tree: ast.Module, module_path: str, *, is_package: bool = False) -> 'ImportTable'  [seeded]"
     types:
-      - "analyzer.refs.Resolver(symbols: dict[str, list[dict]], tables: dict[str, 'ImportTable'])"
-      - "analyzer.refs.ImportTable(module_path: str, *, is_package: bool = False)"
+      - "analyzer.refs.Resolver(symbols: dict[str, list[dict]], tables: dict[str, 'ImportTable'])  [seeded]"
+      - "analyzer.refs.ImportTable(module_path: str, *, is_package: bool = False)  [seeded]"
   done_when:
     - Given a symbol, returns every caller with file, line, and enclosing symbol.
     - Call site arguments are recorded as written, never traced to their origin.
@@ -76,7 +78,7 @@
   writes: [analyzer/refs.py]
   surface:
     callables:
-      - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]"
+      - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]  [seeded]"
   done_when:
     - A registry lookup or getattr call produces a record, never a silent skip.
     - Symbols in a file containing an unresolved site are marked low confidence.
@@ -89,12 +91,17 @@
   writes: [analyzer/affected.py]
   surface:
     callables:
-      - "analyzer.affected.compute_affected(repo, old_rev: str, new_rev: str) -> AffectedReport"
-      - "analyzer.affected.render_report(report: AffectedReport, out=sys.stdout) -> None"
+      - "analyzer.affected.compute_affected(repo: str | Path, old_rev: str, new_rev: str) -> AffectedReport  [authored]"
+      - "analyzer.affected.render_report(report: AffectedReport, out=sys.stdout) -> None  [seeded]"
     types:
-      - "analyzer.affected.AffectedReport(old: str, new: str, rows: list)"
-      - "analyzer.affected.Row(path: str, category: str, detail: str, callers: list = field(default_factory=list), error: bool = False)"
-    errors: []
+      - "analyzer.affected.AffectedReport(old: str, new: str, rows: list)  [seeded]"
+      - "analyzer.affected.Row(path: str, category: str, detail: str, callers: list = field(default_factory=list), error: bool = False)  [seeded]"
+      - "analyzer.affected.Row.category ∈ signature | body | decorators | moved | deleted | added | unknown  [authored]"
+      - "analyzer.affected.Row.path: the affected symbol's dotted path; one row per affected symbol path  [authored]"
+      - "analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]"
+    errors:
+      - "analyzer.affected.Row.error: set iff the symbol was deleted while the old index records callers  [authored]"
+      - "analyzer.affected.AffectedReport.has_error: true iff any row.error  [authored]"
   done_when:
     - An import added at the top of a file reports every symbol as moved, nothing as changed.
     - A body only change does not report callers as affected.
@@ -107,7 +114,8 @@
   writes: [analyzer/cli.py, analyzer/__main__.py]
   surface:
     callables:
-      - "analyzer.cli.main(argv=None) -> int"
+      - "analyzer.cli.main(argv=None) -> int  [seeded]"
   done_when:
     - index runs on a 20k line repo in under 10 seconds.
     - Every subcommand works against a saved index file without reindexing.
+    - A report with an error-grade row makes main return exit code 1.
