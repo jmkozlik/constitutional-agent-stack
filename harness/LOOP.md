@@ -1,6 +1,16 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-07, session close after report 002.
+**Updated:** 2026-08-07, after report 003 (F15/F16 applied verbatim, F19
+replay checker built and closed, F18 spec diff PROPOSED — awaiting
+ratification, incl. the importer-set definition pin). New standing
+protocols: ratification fidelity (ruled-text vs applied-diff side by side;
+mismatch stops regardless of blocking class) and harvested code stored
+inert (.py.txt — evidence is never indexable source). Replay is `python -m
+harness.join replay <node> --commit C --shipped F` (IDENTICAL 0 / DIVERGED
+1 / CHECK-ERROR 2, commit-anchored). Ledger F1–F19: harness/reports/003.md.
+Queue: 3b → 3c → F18 ratification → 3d → W05 restructure.
+
+**Previous:** 2026-08-07, session close after report 002.
 
 ## Where the build is
 
