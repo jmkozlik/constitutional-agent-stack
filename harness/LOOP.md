@@ -1,17 +1,20 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-07, session in flight (v0.4.1 execution). This header is
-stale until the session's last write.
+**Updated:** 2026-08-07, session close after report 001.
 
 ## Where the build is
 
-- Analyzer v0: complete, 202 tests. The join (step 2): complete. Write-fence:
-  shipped (fence.py + committed PreToolUse hook + diff gate).
-- Spec format: v0.4.1 being applied (F10a reword, F10b as-built pin, F11
-  provenance line, fence scratch section). Then gate, then step 3.
+- Analyzer v0: complete, 204 tests. The join (step 2): complete. Write-fence:
+  shipped, with the v0.4.1 scratch section (.harness/scratch).
+- Spec format v0.4.1 applied at commit 4e5d495; gate run; **third STOP**:
+  F12 (ratified Row.error iff-condition vs V6 parse-failure behavior) and
+  F13 (F10b pin vs legitimate moved rows). Candidate one-line amendments in
+  harness/reports/001.md. **Step 3 NOT dispatched** — staging is 4 commands
+  once F12/F13 are ruled; dispatch protocol drafted in report `next`.
 - W05 restructure (index_assembly node) ratified, sequenced AFTER step 3.
   The refs W05 prints until it lands. gitio._git consumption (F6) rides
   with it.
+- Authoritative findings ledger: harness/reports/001.md (F1–F13).
 
 ## Protocol (ratified 2026-08-07)
 
