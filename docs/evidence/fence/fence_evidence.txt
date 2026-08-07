@@ -1,0 +1,40 @@
+=== 1. fence.json (dispatch record) ===
+{
+  "allowed": {
+    "analyzer/affected.py": "exists@fa5af16b"
+  },
+  "node": "affected_symbols",
+  "packet_hash": null,
+  "plan": "c98fb664a54f",
+  "version": 1
+}
+
+=== 2. chmod: before apply ===
+-rw-r--r--  1 rokko  wheel  5922 Aug  7 11:28 /private/tmp/claude-501/-Users-rokko-experiments-lex/e080b300-5c0a-4fee-83a9-01d14d44cd6f/scratchpad/fence-demo/analyzer/affected.py
+-rw-r--r--  1 rokko  wheel  4474 Aug  7 11:28 /private/tmp/claude-501/-Users-rokko-experiments-lex/e080b300-5c0a-4fee-83a9-01d14d44cd6f/scratchpad/fence-demo/analyzer/cli.py
+fenced: 48 out-of-scope files now read-only
+--- after apply (cli.py locked, affected.py writable) ---
+-rw-r--r--  1 rokko  wheel  5922 Aug  7 11:28 /private/tmp/claude-501/-Users-rokko-experiments-lex/e080b300-5c0a-4fee-83a9-01d14d44cd6f/scratchpad/fence-demo/analyzer/affected.py
+-r--r--r--  1 rokko  wheel  4474 Aug  7 11:28 /private/tmp/claude-501/-Users-rokko-experiments-lex/e080b300-5c0a-4fee-83a9-01d14d44cd6f/scratchpad/fence-demo/analyzer/cli.py
+
+=== 3. live hook rejections (PreToolUse, stdin JSON as Claude Code sends it) ===
+--- out-of-scope Write -> deny ---
+write fence [affected_symbols]: 'analyzer/cli.py' is out of scope — REQUEST_MEM or file a defect. Do not work around. Your write scope: analyzer/affected.py
+exit=2
+--- in-scope Write -> allow ---
+exit=0
+--- Bash redirect to out-of-scope -> deny (soft layer) ---
+write fence [affected_symbols]: 'analyzer/refs.py' is out of scope — REQUEST_MEM or file a defect. Do not work around. Your write scope: analyzer/affected.py
+exit=2
+
+=== 4. diff gate on a planted violation ===
+write-fence gate: RUN FAILS — out-of-scope changes:
+  analyzer/cli.py
+exit=1
+--- revert plant, gate goes clean ---
+write-fence gate: clean (all changes within scope)
+exit=0
+
+=== 5. release restores modes ===
+released: 48 files restored
+-rw-r--r--  1 rokko  wheel  4474 Aug  7 11:28 /private/tmp/claude-501/-Users-rokko-experiments-lex/e080b300-5c0a-4fee-83a9-01d14d44cd6f/scratchpad/fence-demo/analyzer/cli.py

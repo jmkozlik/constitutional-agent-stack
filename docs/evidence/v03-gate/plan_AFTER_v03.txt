@@ -1,0 +1,24 @@
+index: 25 files at worktree (uncommitted)
+spec plan hash: 700ed9428a55   dispatch plan hash: c98fb664a54f
+
+dispatch-safe plan
+  level 0  (1 parallel)
+    - gitio  [delta: empty (validation-only)]
+  level 1  (1 parallel)
+    - symbol_table  [delta: empty (validation-only)]
+  level 2  (1 parallel)
+    - reference_map  [delta: empty (validation-only)]
+  level 3.0  (1 parallel)
+    - affected_symbols  [delta: empty (validation-only)]
+  level 3.1  (1 parallel)
+    - unresolved_sites  [delta: empty (validation-only)]
+  level 4  (1 parallel)
+    - analyzer_cli  [delta: empty (validation-only)]
+
+6 findings
+  [W02] reference_map: unresolvable region forces serialization: analyzer/refs.py (getattr_call at line 36, getattr_call at line 37, getattr_call at line 39, getattr_call at line 637)
+  [W02] unresolved_sites: unresolvable region forces serialization: analyzer/refs.py (getattr_call at line 36, getattr_call at line 37, getattr_call at line 39, getattr_call at line 637); serialize against level-3 peers: affected_symbols
+  [W05] symbol_table (level 1) consumes analyzer.refs.ImportTable, analyzer.refs.ImportTable.from_module, analyzer.refs.Resolver, analyzer.refs.collect_references owned by reference_map (level 2) with no spec path between them — the compiled order does not protect this edge
+  [W07] affected_symbols: done_when speaks of an error but surface declares none
+  [W01] symbol_table: undecided - Nested functions as their own symbols, or folded into the parent?
+  [W01] symbol_table: undecided - Index module level constants?
