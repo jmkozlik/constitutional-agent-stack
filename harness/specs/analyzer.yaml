@@ -33,36 +33,63 @@
     - A failing git command raises GitError, never a silent empty result.
 
 - id: symbol_table
-  one_liner: Walks a Python repo at a commit and records every function and class
-             with its location, signature, and separate hashes for signature and body.
-  references: [gitio]
-  writes: [analyzer/modpath.py, analyzer/symbols.py, analyzer/indexer.py]
+  one_liner: Extracts every function and class from Python source with its location,
+             signature, and separate hashes for signature and body.
+  references: []
+  writes: [analyzer/modpath.py, analyzer/symbols.py]
+  surface:
+    callables:
+      - "analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]  [seeded]"
+      - "analyzer.modpath.module_path(rel_path: str) -> str  [seeded]"
+    types:
+      - "analyzer.symbols.extract_symbols: each returned record carries path,
+         kind, file, start_line, end_line, signature, doc, sig_hash, body_hash,
+         decor_hash and parent; class records add fields. The index layer adds
+         confidence and referenced_by downstream.  [authored]"
+    errors:
+      - "analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; the index layer instead records an unresolved site with reason parse_error  [seeded]"
+  done_when:
+    - Reformatting whitespace does not change the body hash.
+    - Ranges are recomputed per commit, never stored as identity.
+  open:
+    - Nested functions as their own symbols, or folded into the parent?
+    - Index module level constants?
+
+- id: index_assembly
+  one_liner: Assembles the index for a repo at a commit - symbol records, reference
+             edges, unresolved sites, and each file's import bindings with their
+             resolved origins.
+  references: [gitio, symbol_table, reference_map, unresolved_sites]
+  writes: [analyzer/indexer.py]
   surface:
     callables:
       - "analyzer.indexer.build_index(repo: str | Path, commit: str | None) -> dict  [seeded]"
       - "analyzer.indexer.serialize(index: dict) -> str  [seeded]"
       - "analyzer.indexer.load_index(path: str | Path) -> dict  [seeded]"
-      - "analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]  [seeded]"
       - "analyzer.indexer.import_origins(index: dict, module: str) -> list[str]  [authored]"
     types:
       - "analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]"
-      - "analyzer.indexer.record: the index adds a top-level imports table —
-         {file: [{name: str, origins: [dotted origins as resolved by the
-         reference layer, re-export chase included]}]} — taken from the
-         Resolver's output at build time, never recomputed downstream  [authored]"
+      - "analyzer.indexer.imports: the index adds a top-level imports table —
+         {file - [{name - str, kind - module | symbol, origin - dotted resolved
+         terminal, being the symbol path for name bindings and the module path
+         for module bindings, module - dotted defining module, equal to origin
+         for module-kind entries}]} — taken from the Resolver's output at build
+         time, never recomputed downstream. Files emit sorted by path and each
+         file's entries emit sorted by (name, origin), so byte-identity
+         survives the new key.  [authored]"
+      - "analyzer.indexer.import_origins: matches entries on the module field —
+         the dotted defining module — and answers from the index's imports
+         table, never by recomputation.  [authored]"
     errors:
-      - "analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; build_index instead records an unresolved site with reason parse_error  [seeded]"
       - "analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]"
   done_when:
     - Indexing the same commit twice produces byte identical output.
     - The emitted index maps every symbol path to at least one record carrying its definition location and signature.
-    - Reformatting whitespace does not change the body hash.
-    - Ranges are recomputed per commit, never stored as identity.
     - build_index exposes each file's import bindings with resolved origins,
       re-export chains included, and import_origins answers from them.
-  open:
-    - Nested functions as their own symbols, or folded into the parent?
-    - Index module level constants?
+    - "A bare module import that is never called yields a module-kind imports
+       entry whose origin and module are both the imported module, so an
+       imported-but-uncalled binding leaves a trace in the index."
 
 - id: reference_map
   one_liner: Records every site that references each symbol, with the arguments as
@@ -97,7 +124,7 @@
 - id: affected_symbols
   one_liner: Given two commits, reports which symbols changed and whether the change
              was to the signature, the body, or only line positions.
-  references: [symbol_table, reference_map, gitio]
+  references: [symbol_table, reference_map, gitio, index_assembly]
   writes: [analyzer/affected.py]
   surface:
     callables:
@@ -131,7 +158,7 @@
 
 - id: analyzer_cli
   one_liner: Command line entry point exposing index, symbol, affected, and unresolved.
-  references: [affected_symbols, unresolved_sites, gitio]
+  references: [affected_symbols, unresolved_sites, gitio, index_assembly]
   writes: [analyzer/cli.py, analyzer/__main__.py]
   surface:
     callables:

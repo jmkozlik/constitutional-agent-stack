@@ -971,14 +971,16 @@ def test_f20_callable_extension_in_scope_presence_checks():
 
 
 def test_f20_callable_extension_absent_until_built_on_real_spec():
-    # D1-B's import_origins is authored, inside symbol_table's own write
+    # D1-B's import_origins is authored, inside index_assembly's own write
     # scope (analyzer/indexer.py), and NOT built -> absent, so the node
     # honestly reports outstanding work instead of validation-only.
+    # (Was symbol_table before the ratified index_assembly restructure;
+    # the test's intent is unchanged, only its owner moved.)
     plan = join.load_plan(PROJECT_ROOT / "harness" / "specs")
     index = build_index(PROJECT_ROOT, None)
     resolved = join.resolve_writes(plan, index)
     delta = join.compute_delta(
-        plan, index, resolved, "symbol_table", repo=PROJECT_ROOT
+        plan, index, resolved, "index_assembly", repo=PROJECT_ROOT
     )
     status = next(
         s for e, s in delta["callables"]
@@ -1047,6 +1049,23 @@ def test_replay_still_diverges_on_a_real_mismatch(tmp_path):
 
 
 # --- v0.5 bundle: observed_through (B) + seeded-growth policy (C) ------------
+
+
+def test_prose_type_line_does_not_leak_into_other_nodes_packets():
+    # A prose types line has no "(", so terminal extraction produced "" and
+    # the \b\b word-boundary guard matched every packet — handing gitio's
+    # tester the index's imports contract. P6 leak, found by red-team.
+    plan = join.load_plan(PROJECT_ROOT / "harness" / "specs")
+    index = build_index(PROJECT_ROOT, None)
+    resolved = join.resolve_writes(plan, index)
+    for node in ("gitio", "reference_map", "unresolved_sites"):
+        packet = join.assemble_packet(
+            plan, index, resolved, node, "tester",
+            identities_dir=PROJECT_ROOT / "harness" / "identities",
+            repo=PROJECT_ROOT,
+        )
+        assert "imports table" not in packet, node
+        assert "[from index_assembly]" not in packet, node
 
 
 def test_observed_through_renders_in_both_roles():
@@ -1168,6 +1187,7 @@ def test_real_spec_resolves_against_this_repo():
     assert set(resolved) == {
         "gitio",
         "symbol_table",
+        "index_assembly",
         "reference_map",
         "unresolved_sites",
         "affected_symbols",
@@ -1175,6 +1195,7 @@ def test_real_spec_resolves_against_this_repo():
     }
     findings = join.plan_checks(plan, index, resolved)
     assert [f for f in findings if f.code == "E08"] == []
-    # The known as-built reverse edge: indexer.py (symbol_table) consumes
-    # refs.py (reference_map).
-    assert any(f.code == "W05" for f in findings)
+    # The ratified index_assembly restructure gave indexer.py its own node
+    # with declared edges, so the reverse edge that produced W05 is gone.
+    # This is F30 retiring, asserted rather than described.
+    assert [f for f in findings if f.code == "W05"] == []

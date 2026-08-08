@@ -435,6 +435,17 @@ def _parse_surface(entry: str) -> tuple:
     return entry[:paren].strip(), entry[paren:].strip()
 
 
+def _anchor_terminal(entry: str) -> str:
+    """The terminal name a surface entry declares, cutting at the first of
+    the shapes an entry can take. speccc's anchor check already cuts this
+    way; packet assembly disagreed, which is how prose lines leaked."""
+    text, _ = _split_provenance(entry)
+    cuts = [text.find(sep) for sep in ("(", " ∈ ", " = ", ": ")]
+    cuts = [i for i in cuts if i >= 0]
+    subject = text[: min(cuts)] if cuts else text
+    return subject.strip().rsplit(".", 1)[-1]
+
+
 def _surface_sections(node: dict) -> tuple:
     surface = node.get("surface") or {}
     return (
@@ -735,12 +746,12 @@ def _render_surface(plan: Plan, node_id: str) -> list:
             continue
         _, other_types, _ = _surface_sections(plan.nodes[other])
         for entry in other_types:
-            text, _prov = _split_provenance(entry)
-            path, _ = _parse_surface(text.split(" = ", 1)[0])
-            terminal = path.rsplit(".", 1)[-1]
-            if entry not in types and re.search(
-                rf"\b{re.escape(terminal)}\b", own_text
-            ):
+            terminal = _anchor_terminal(entry)
+            # An empty terminal used to compile to \b\b, which matches any
+            # text — so a prose types line rode into every node's packet.
+            if not terminal or entry in types:
+                continue
+            if re.search(rf"\b{re.escape(terminal)}\b", own_text):
                 foreign.append(f"    - {entry}  [from {other}]")
     lines = ["  callables:"]
     lines += [f"    - {e}" for e in callables] or ["    (none declared)"]
