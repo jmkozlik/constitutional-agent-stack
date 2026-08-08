@@ -1,0 +1,10 @@
+.harness/out/tests/test_affected_surface.py:94: AssertionError
+=========================== short test summary info ============================
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g5_never_reports_a_bare_zero
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g5_flag_survives_a_partially_resolved_caller_list
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g5_boundary_clean_importer_set_does_not_set_flag
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g6_delete_without_callers_but_unresolved_sites_sets_flag
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g7_unknowable_fires_through_a_re_export_chain
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g7_boundary_clean_facade_importer_does_not_set_flag
+FAILED .harness/out/tests/test_affected_surface.py::test_rows_expose_callers_unknowable
+7 failed, 36 passed in 7.49s

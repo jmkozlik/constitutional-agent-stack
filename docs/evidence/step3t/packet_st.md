@@ -39,11 +39,16 @@ request_mem (v0 shape): a report line "REQUEST_MEM: <what and why>".
 Fence: writes outside your write scope, .harness/scratch/, and
   .harness/out/ are violations. On a denial, record it verbatim;
   do not work around.
+Seeded vs authored (ratified): an [authored] line naming an
+  attribute of a [seeded] type authorises you to add exactly that
+  attribute. The [seeded] line reseeds byte-for-byte after the work
+  lands. The two lines are not in conflict; the authored one leads.
 
 ## Task  [provenance: spec, verbatim]
 
 node: symbol_table
 language: python
+observed_through: the value returned by the surface callable, unless a done_when bullet names a rendering callable explicitly
 one_liner: Walks a Python repo at a commit and records every function and class with its location, signature, and separate hashes for signature and body.
 write scope (exhaustive — writing anything else is a violation):
   - analyzer/modpath.py
@@ -55,8 +60,12 @@ surface (the exported contract done_when is tested through):
     - analyzer.indexer.serialize(index: dict) -> str  [seeded]
     - analyzer.indexer.load_index(path: str | Path) -> dict  [seeded]
     - analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]  [seeded]
+    - analyzer.indexer.import_origins(index: dict, module: str) -> list[str]  [authored]
   types:
     - analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]
+    - analyzer.indexer.record: the index adds a top-level imports table — {file: [{name: str, origins: [dotted origins as resolved by the reference layer, re-export chase included]}]} — taken from the Resolver's output at build time, never recomputed downstream  [authored]
+    - analyzer.affected.compute_affected: repo is a path to a git repository; old_rev and new_rev are any git revisions rev-parse-able within it. Both indexes are built from git objects at those revisions — neither rev is checked out, and uncommitted worktree state is never consulted.  [authored]  [from affected_symbols]
+    - analyzer.refs.Resolver(symbols: dict[str, list[dict]], tables: dict[str, 'ImportTable'])  [seeded]  [from reference_map]
   errors:
     - analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; build_index instead records an unresolved site with reason parse_error  [seeded]
     - analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]
@@ -68,6 +77,7 @@ done_when (attest against, or file against, on a validation-only dispatch):
   - The emitted index maps every symbol path to at least one record carrying its definition location and signature.
   - Reformatting whitespace does not change the body hash.
   - Ranges are recomputed per commit, never stored as identity.
+  - build_index exposes each file's import bindings with resolved origins, re-export chains included, and import_origins answers from them.
 
 delta [compiled at dispatch from surface x index — surface is what makes the delta computable; it is never spec-authored and never handoff-carried]:
   writes:
@@ -79,14 +89,16 @@ delta [compiled at dispatch from surface x index — surface is what makes the d
     - analyzer.indexer.serialize(index: dict) -> str  [seeded]: present
     - analyzer.indexer.load_index(path: str | Path) -> dict  [seeded]: present
     - analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]  [seeded]: present
+    - analyzer.indexer.import_origins(index: dict, module: str) -> list[str]  [authored]: absent
   types:
     - analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]: authored (contract — tester-verified, delta-exempt)
+    - analyzer.indexer.record: the index adds a top-level imports table — {file: [{name: str, origins: [dotted origins as resolved by the reference layer, re-export chase included]}]} — taken from the Resolver's output at build time, never recomputed downstream  [authored]: authored (contract — tester-verified, delta-exempt)
   errors:
     - analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; build_index instead records an unresolved site with reason parse_error  [seeded]: present
     - analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]: present
-  => empty delta — validation-only dispatch
+  => 1 outstanding: analyzer.indexer.import_origins(index: dict, module: str) -> list[str]  [authored]
 
-## State — compiled  [provenance: verified at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5]
+## State — compiled  [provenance: verified at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf]
 
 ### Write scope as it exists
 
@@ -94,7 +106,7 @@ delta [compiled at dispatch from surface x index — surface is what makes the d
 - analyzer.modpath.module_path  [function, confidence high]  lines 4-8
   signature: (rel_path: str) -> str
 
-source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
+source (verbatim at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf):
      1  """File path -> dotted module path, relative to the indexed repo root."""
      2  
      3  
@@ -135,7 +147,7 @@ source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
 - analyzer.symbols.extract_symbols  [function, confidence high]  lines 126-131
   signature: (source: bytes, rel_path: str) -> list[dict]
 
-source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
+source (verbatim at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf):
      1  """Pass 1: walk one file's AST and emit a symbol record per definition.
      2  
      3  Records here carry everything except `confidence` and `referenced_by`,
@@ -352,7 +364,7 @@ source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
 - analyzer.indexer.serialize  [function, confidence high]  lines 199-200
   signature: (index: dict) -> str
 
-source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
+source (verbatim at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf):
      1  """Orchestration: walk a repo (working tree or commit), run both passes,
      2  emit a deterministic index dict / JSON document."""
      3  
@@ -609,15 +621,17 @@ source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
 - analyzer.indexer.build_index <- analyzer/cli.py:8 in analyzer.cli
 - analyzer.indexer.build_index <- analyzer/cli.py:13 in analyzer.cli._cmd_index args=(args.repo, args.commit)
 - analyzer.indexer.build_index <- harness/fence.py:25 in harness.fence
-- analyzer.indexer.build_index <- harness/fence.py:141 in harness.fence._cmd_build args=(args.repo, commit)
-- analyzer.indexer.build_index <- harness/join.py:23 in harness.join
-- analyzer.indexer.build_index <- harness/join.py:1037 in harness.join._cmd_plan args=(args.repo, args.commit)
-- analyzer.indexer.build_index <- harness/join.py:1071 in harness.join._cmd_packet args=(args.repo, commit)
-- analyzer.indexer.build_index <- harness/join.py:1139 in harness.join._cmd_replay args=(args.repo, sha)
-- analyzer.indexer.build_index <- harness/join.py:1191 in harness.join._cmd_record args=(args.repo, sha)
+- analyzer.indexer.build_index <- harness/fence.py:153 in harness.fence._cmd_build args=(args.repo, commit)
+- analyzer.indexer.build_index <- harness/join.py:24 in harness.join
+- analyzer.indexer.build_index <- harness/join.py:1084 in harness.join._cmd_plan args=(args.repo, args.commit)
+- analyzer.indexer.build_index <- harness/join.py:1118 in harness.join._cmd_packet args=(args.repo, commit)
+- analyzer.indexer.build_index <- harness/join.py:1252 in harness.join._cmd_record args=(args.repo, sha)
 - analyzer.indexer.build_index <- tests/test_fence.py:10 in tests.test_fence
 - analyzer.indexer.build_index <- tests/test_fence.py:21 in tests.test_fence.fenced_fixture args=(repo, None)
 - analyzer.indexer.build_index <- tests/test_fence.py:46 in tests.test_fence.test_build_fence_to_create args=(repo, None)
+- analyzer.indexer.build_index <- tests/test_fence.py:59 in tests.test_fence.test_tester_fence_allows_no_tracked_writes args=(repo, None)
+- analyzer.indexer.build_index <- tests/test_fence.py:76 in tests.test_fence.test_executor_fence_unchanged_by_role_parameter args=(repo2, None)
+- analyzer.indexer.build_index <- tests/test_fence.py:91 in tests.test_fence.test_diff_gate_catches_tester_writing_implementation args=(repo, None)
 - analyzer.indexer.build_index <- tests/test_indexer.py:1 in tests.test_indexer
 - analyzer.indexer.build_index <- tests/test_indexer.py:37 in tests.test_indexer.test_build_index_end_to_end args=(repo, None)
 - analyzer.indexer.build_index <- tests/test_indexer.py:50 in tests.test_indexer.test_low_confidence_marks_whole_file_only args=(repo, None)
@@ -654,9 +668,12 @@ source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
 - analyzer.indexer.build_index <- tests/test_join.py:905 in tests.test_join.test_structural_authored_absent_is_outstanding args=(repo, None)
 - analyzer.indexer.build_index <- tests/test_join.py:923 in tests.test_join.test_structural_authored_present_and_behavioral_exempt args=(repo, None)
 - analyzer.indexer.build_index <- tests/test_join.py:938 in tests.test_join.test_f20_locked_demonstration_on_real_spec args=(PROJECT_ROOT, None)
-- analyzer.indexer.build_index <- tests/test_join.py:995 in tests.test_join.test_record_emitter_composes_from_artifacts args=(repo, sha)
-- analyzer.indexer.build_index <- tests/test_join.py:1031 in tests.test_join.test_record_emitter_rejects_trailer_mismatch args=(repo, sha)
-- analyzer.indexer.build_index <- tests/test_join.py:1055 in tests.test_join.test_real_spec_resolves_against_this_repo args=(PROJECT_ROOT, None)
+- analyzer.indexer.build_index <- tests/test_join.py:961 in tests.test_join.test_f20_callable_extension_in_scope_presence_checks args=(PROJECT_ROOT, None)
+- analyzer.indexer.build_index <- tests/test_join.py:978 in tests.test_join.test_f20_callable_extension_absent_until_built_on_real_spec args=(PROJECT_ROOT, None)
+- analyzer.indexer.build_index <- tests/test_join.py:1004 in tests.test_join.test_f20_callable_outside_own_scope_stays_behavioral args=(repo, None)
+- analyzer.indexer.build_index <- tests/test_join.py:1106 in tests.test_join.test_record_emitter_composes_from_artifacts args=(repo, sha)
+- analyzer.indexer.build_index <- tests/test_join.py:1142 in tests.test_join.test_record_emitter_rejects_trailer_mismatch args=(repo, sha)
+- analyzer.indexer.build_index <- tests/test_join.py:1166 in tests.test_join.test_real_spec_resolves_against_this_repo args=(PROJECT_ROOT, None)
 - analyzer.indexer.load_index <- analyzer/cli.py:8 in analyzer.cli
 - analyzer.indexer.load_index <- analyzer/cli.py:31 in analyzer.cli._load args=(args.index)
 - analyzer.indexer.serialize <- analyzer/cli.py:8 in analyzer.cli
@@ -688,9 +705,9 @@ source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
 (none)
 
 ### Coverage
-Compiled from an index of 28 files at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5. This packet includes your write scope (3 entries), 11 consumed/available interface symbols, and every recorded caller of your scope. Anything not listed was not searched. Missing means query (request_mem), never build. verify with: .venv/bin/python -m pytest
+Compiled from an index of 28 files at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf. This packet includes your write scope (3 entries), 11 consumed/available interface symbols, and every recorded caller of your scope. Anything not listed was not searched. Missing means query (request_mem), never build. verify with: .venv/bin/python -m pytest
 
 ## State — handoff  [provenance: agent-authored, claim not fact]
 
 (none for this dispatch)
-packet: node=symbol_table role=executor commit=492f57f51a6297cea4ae280c2ed66fd56d67dfb5 plan=c98fb664a54f packet_hash=706601190ff2
+packet: node=symbol_table role=executor commit=f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf plan=c98fb664a54f packet_hash=b55d8e1c56c2

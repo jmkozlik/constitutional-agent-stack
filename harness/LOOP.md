@@ -1,6 +1,29 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-07, after report 006. **FOURTH STOP — 3t NOT
+**Updated:** 2026-08-08, after report 007. **Bundle applied verbatim
+(A/B/C + D1-B + F20 extension YES + F23); 3t DISPATCHED AND CLEAN.**
+4 guarantees pass, 3 fail-first on one absent attribute
+(`Row.callers_unknowable`); blind, zero implementation writes, diff gate
+clean, verifier rerun reproduces 36 passed / 7 failed exactly. **3t's
+seven failing tests are 3d-2's acceptance criteria, written blind and
+already on disk**; the tester established the re-export chain is already
+walked — only the flag is missing. Dispatch record emitted by
+`harness.join record/1` — **MANUAL retired**. **F23 closed** (replay pins
+the join version; proved on the case that filed it — 3b's packet now
+IDENTICAL, tampering still DIVERGED). **F5/F24/F25/F26 closed.** Proposals
+B and C proved themselves inside the dispatch: the tester quotes the
+seeded-vs-authored rule and declines to file the contradiction. Both
+executor probes `insufficient` — **corroboration of D1-B, gating 3d-1 and
+3d-2 only**, per ratified stop-routing; neither gated 3t. New: **F27**
+(tester packets carry no run contract — F22's twin), **F28** (the hook
+layer is inert for subagent dispatch; chmod + diff gate carried the wall,
+demonstrated). **F4 proposal delivered as ordered**: Proposal D
+(spec-declared citations compiled as excerpts — the two cited brief
+sections are 4% of the packet) and Proposal E (`verified_by:` test bodies,
+24%, separable). Recommend D now, E after 3d-1 tells us if it is needed.
+**Pending: D, E, F27, F28, 3t's D-2/D-3/D-4.** Then 3d-1 → 3d-2 → W05.
+
+**Previous:** 2026-08-07, after report 006. **FOURTH STOP — 3t NOT
 dispatched.** Gate re-run on fresh packets (replay 3/3 IDENTICAL, index 28,
 219 tests): **executor:affected_symbols returned `insufficient`** — first
 ever; substance is D1/F18 (five of eight missing items = "the import graph

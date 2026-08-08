@@ -39,11 +39,16 @@ request_mem (v0 shape): a report line "REQUEST_MEM: <what and why>".
 Fence: writes outside your write scope, .harness/scratch/, and
   .harness/out/ are violations. On a denial, record it verbatim;
   do not work around.
+Seeded vs authored (ratified): an [authored] line naming an
+  attribute of a [seeded] type authorises you to add exactly that
+  attribute. The [seeded] line reseeds byte-for-byte after the work
+  lands. The two lines are not in conflict; the authored one leads.
 
 ## Task  [provenance: spec, verbatim]
 
 node: affected_symbols
 language: python
+observed_through: the value returned by the surface callable, unless a done_when bullet names a rendering callable explicitly
 one_liner: Given two commits, reports which symbols changed and whether the change was to the signature, the body, or only line positions.
 write scope (exhaustive — writing anything else is a violation):
   - analyzer/affected.py
@@ -59,6 +64,7 @@ surface (the exported contract done_when is tested through):
     - analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]
     - analyzer.affected.AffectedReport: compiled at call time — compute_affected builds the old and new indexes internally from old_rev and new_rev; no pre-built index artifact is read or required  [authored]
     - analyzer.affected.Row.callers_unknowable: set iff the old index records unresolved sites in the symbol's importer set — the symbol's own file, plus every file whose import table contains any binding whose resolved origin is the symbol's defining module (module imports, from-imports of any name in it, and re-export chains). Set means edges may exist that no record names; no edges are invented. Unset means no such sites were detected, and is not a completeness guarantee for channels the analyzer cannot see, such as dynamic imports.  [authored]
+    - analyzer.affected.compute_affected: repo is a path to a git repository; old_rev and new_rev are any git revisions rev-parse-able within it. Both indexes are built from git objects at those revisions — neither rev is checked out, and uncommitted worktree state is never consulted.  [authored]
     - analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]  [from symbol_table]
   errors:
     - analyzer.affected.Row.error: Row.error is set iff the old index records callers for the symbol and either the symbol was deleted at new_rev or its changed file fails to parse at new_rev.  [authored]
@@ -70,12 +76,13 @@ done_when (attest against, or file against, on a validation-only dispatch):
   - Deleting a symbol with recorded callers is an error, not a silent success.
   - A signature change to a symbol whose importer set carries unresolved sites reports callers_unknowable, never a bare zero.
   - Deleting a symbol with no recorded callers but unresolved sites in its importer set reports callers_unknowable.
+  - callers_unknowable fires through a re-export chain: an importer reaching the symbol's module only via a package facade, carrying an unresolved site, sets the flag.
 
 delta [compiled at dispatch from surface x index — surface is what makes the delta computable; it is never spec-authored and never handoff-carried]:
   writes:
     - analyzer/affected.py: exists@fa5af16b
   callables:
-    - analyzer.affected.compute_affected(repo: str | Path, old_rev: str, new_rev: str) -> AffectedReport  [authored]: authored (contract — tester-verified, delta-exempt)
+    - analyzer.affected.compute_affected(repo: str | Path, old_rev: str, new_rev: str) -> AffectedReport  [authored]: present
     - analyzer.affected.render_report(report: AffectedReport, out=sys.stdout) -> None  [seeded]: present
   types:
     - analyzer.affected.AffectedReport(old: str, new: str, rows: list)  [seeded]: present
@@ -85,12 +92,13 @@ delta [compiled at dispatch from surface x index — surface is what makes the d
     - analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]: present
     - analyzer.affected.AffectedReport: compiled at call time — compute_affected builds the old and new indexes internally from old_rev and new_rev; no pre-built index artifact is read or required  [authored]: authored (contract — tester-verified, delta-exempt)
     - analyzer.affected.Row.callers_unknowable: set iff the old index records unresolved sites in the symbol's importer set — the symbol's own file, plus every file whose import table contains any binding whose resolved origin is the symbol's defining module (module imports, from-imports of any name in it, and re-export chains). Set means edges may exist that no record names; no edges are invented. Unset means no such sites were detected, and is not a completeness guarantee for channels the analyzer cannot see, such as dynamic imports.  [authored]: absent
+    - analyzer.affected.compute_affected: repo is a path to a git repository; old_rev and new_rev are any git revisions rev-parse-able within it. Both indexes are built from git objects at those revisions — neither rev is checked out, and uncommitted worktree state is never consulted.  [authored]: authored (contract — tester-verified, delta-exempt)
   errors:
     - analyzer.affected.Row.error: Row.error is set iff the old index records callers for the symbol and either the symbol was deleted at new_rev or its changed file fails to parse at new_rev.  [authored]: present
     - analyzer.affected.AffectedReport.has_error: true iff any row.error  [authored]: present
   => 1 outstanding: analyzer.affected.Row.callers_unknowable: set iff the old index records unresolved sites in the symbol's importer set — the symbol's own file, plus every file whose import table contains any binding whose resolved origin is the symbol's defining module (module imports, from-imports of any name in it, and re-export chains). Set means edges may exist that no record names; no edges are invented. Unset means no such sites were detected, and is not a completeness guarantee for channels the analyzer cannot see, such as dynamic imports.  [authored]
 
-## State — compiled  [provenance: verified at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5]
+## State — compiled  [provenance: verified at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf]
 
 ### Write scope as it exists
 
@@ -116,7 +124,7 @@ delta [compiled at dispatch from surface x index — surface is what makes the d
 - analyzer.affected.render_report  [function, confidence high]  lines 162-174
   signature: (report: AffectedReport, out=sys.stdout) -> None
 
-source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
+source (verbatim at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf):
      1  """Diff two commits into per-symbol impact.
      2  
      3  Classification is per dotted path over hash MULTISETS gathered from the
@@ -534,9 +542,9 @@ source (verbatim at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5):
 (none)
 
 ### Coverage
-Compiled from an index of 28 files at 492f57f51a6297cea4ae280c2ed66fd56d67dfb5. This packet includes your write scope (1 entries), 77 consumed/available interface symbols, and every recorded caller of your scope. Anything not listed was not searched. Missing means query (request_mem), never build. verify with: .venv/bin/python -m pytest
+Compiled from an index of 28 files at f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf. This packet includes your write scope (1 entries), 77 consumed/available interface symbols, and every recorded caller of your scope. Anything not listed was not searched. Missing means query (request_mem), never build. verify with: .venv/bin/python -m pytest
 
 ## State — handoff  [provenance: agent-authored, claim not fact]
 
 (none for this dispatch)
-packet: node=affected_symbols role=executor commit=492f57f51a6297cea4ae280c2ed66fd56d67dfb5 plan=c98fb664a54f packet_hash=c5689fc9a798
+packet: node=affected_symbols role=executor commit=f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf plan=c98fb664a54f packet_hash=436e8016abeb

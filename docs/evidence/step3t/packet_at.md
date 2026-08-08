@@ -39,11 +39,16 @@ request_mem (v0 shape): a report line "REQUEST_MEM: <what and why>";
 The implementation is structurally absent from your packet (P6).
   Tests invoke only the declared surface. Inventing an interface is
   a failure even when the guess would match.
+Seeded vs authored (ratified): where an [authored] line names an
+  attribute a [seeded] type's field list does not carry, the
+  authored line leads — the attribute is contract, due to exist,
+  and is not a spec contradiction to file.
 
 ## Task  [provenance: spec, verbatim]
 
 node: affected_symbols
 language: python
+observed_through: the value returned by the surface callable, unless a done_when bullet names a rendering callable explicitly
 surface (the only thing your tests may invoke):
   callables:
     - analyzer.affected.compute_affected(repo: str | Path, old_rev: str, new_rev: str) -> AffectedReport  [authored]
@@ -56,6 +61,7 @@ surface (the only thing your tests may invoke):
     - analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]
     - analyzer.affected.AffectedReport: compiled at call time — compute_affected builds the old and new indexes internally from old_rev and new_rev; no pre-built index artifact is read or required  [authored]
     - analyzer.affected.Row.callers_unknowable: set iff the old index records unresolved sites in the symbol's importer set — the symbol's own file, plus every file whose import table contains any binding whose resolved origin is the symbol's defining module (module imports, from-imports of any name in it, and re-export chains). Set means edges may exist that no record names; no edges are invented. Unset means no such sites were detected, and is not a completeness guarantee for channels the analyzer cannot see, such as dynamic imports.  [authored]
+    - analyzer.affected.compute_affected: repo is a path to a git repository; old_rev and new_rev are any git revisions rev-parse-able within it. Both indexes are built from git objects at those revisions — neither rev is checked out, and uncommitted worktree state is never consulted.  [authored]
     - analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]  [from symbol_table]
   errors:
     - analyzer.affected.Row.error: Row.error is set iff the old index records callers for the symbol and either the symbol was deleted at new_rev or its changed file fails to parse at new_rev.  [authored]
@@ -77,4 +83,5 @@ guarantees to verify (done_when):
   - Deleting a symbol with recorded callers is an error, not a silent success.
   - A signature change to a symbol whose importer set carries unresolved sites reports callers_unknowable, never a bare zero.
   - Deleting a symbol with no recorded callers but unresolved sites in its importer set reports callers_unknowable.
-packet: node=affected_symbols role=tester commit=492f57f51a6297cea4ae280c2ed66fd56d67dfb5 plan=c98fb664a54f packet_hash=e5b81357d967
+  - callers_unknowable fires through a re-export chain: an importer reaching the symbol's module only via a package facade, carrying an unresolved site, sets the flag.
+packet: node=affected_symbols role=tester commit=f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf plan=c98fb664a54f packet_hash=712cdfe4ecef

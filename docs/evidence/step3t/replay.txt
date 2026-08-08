@@ -1,7 +1,7 @@
-=== PACKET REPLAY (join replay, commit-anchored) at 492f57f ===
-IDENTICAL  node=symbol_table role=executor commit=492f57f51a62
+=== PACKET REPLAY (join replay, join-version pinned) at f7b6714 ===
+IDENTICAL  node=symbol_table role=executor commit=f7b67141fbe0
 exit=0
-IDENTICAL  node=affected_symbols role=executor commit=492f57f51a62
+IDENTICAL  node=affected_symbols role=executor commit=f7b67141fbe0
 exit=0
-IDENTICAL  node=affected_symbols role=tester commit=492f57f51a62
+IDENTICAL  node=affected_symbols role=tester commit=f7b67141fbe0
 exit=0

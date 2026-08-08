@@ -5,7 +5,7 @@ dispatch-safe plan
   level 0  (1 parallel)
     - gitio  [delta: empty (validation-only)]
   level 1  (1 parallel)
-    - symbol_table  [delta: empty (validation-only)]
+    - symbol_table  [delta: 1 outstanding]
   level 2  (1 parallel)
     - reference_map  [delta: empty (validation-only)]
   level 3.0  (1 parallel)

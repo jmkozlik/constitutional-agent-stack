@@ -1,0 +1,342 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0 -- /Users/rokko/experiments/lex/.venv/bin/python
+rootdir: /private/tmp/claude-501/-Users-rokko-experiments-lex/e080b300-5c0a-4fee-83a9-01d14d44cd6f/scratchpad/3t/worktree
+configfile: pyproject.toml
+collecting ... collected 43 items
+
+.harness/out/tests/test_affected_errors.py::test_parse_failure_with_callers_sets_row_error PASSED [  2%]
+.harness/out/tests/test_affected_errors.py::test_parse_failure_with_callers_sets_has_error PASSED [  4%]
+.harness/out/tests/test_affected_errors.py::test_parse_failure_does_not_swallow_the_symbol PASSED [  6%]
+.harness/out/tests/test_affected_errors.py::test_boundary_parse_failure_without_callers_is_not_an_error PASSED [  9%]
+.harness/out/tests/test_affected_errors.py::test_boundary_body_change_with_callers_is_not_an_error PASSED [ 11%]
+.harness/out/tests/test_affected_errors.py::test_has_error_agrees_with_its_rows PASSED [ 13%]
+.harness/out/tests/test_affected_errors.py::test_caller_line_survives_a_parse_failure PASSED [ 16%]
+.harness/out/tests/test_affected_guarantees.py::test_g1_added_import_reports_every_symbol_as_moved PASSED [ 18%]
+.harness/out/tests/test_affected_guarantees.py::test_g1_added_import_emits_no_change_row PASSED [ 20%]
+.harness/out/tests/test_affected_guarantees.py::test_g1_boundary_a_real_edit_still_reports_a_change_row PASSED [ 23%]
+.harness/out/tests/test_affected_guarantees.py::test_g2_body_change_is_categorised_body PASSED [ 25%]
+.harness/out/tests/test_affected_guarantees.py::test_g2_body_change_carries_empty_callers PASSED [ 27%]
+.harness/out/tests/test_affected_guarantees.py::test_g2_body_change_emits_no_change_row_for_callers PASSED [ 30%]
+.harness/out/tests/test_affected_guarantees.py::test_g3_signature_change_names_every_call_site PASSED [ 32%]
+.harness/out/tests/test_affected_guarantees.py::test_g3_call_sites_name_their_enclosing_symbol PASSED [ 34%]
+.harness/out/tests/test_affected_guarantees.py::test_g3_caller_records_use_the_declared_kind_vocabulary PASSED [ 37%]
+.harness/out/tests/test_affected_guarantees.py::test_g3_call_site_records_carry_their_args_as_written PASSED [ 39%]
+.harness/out/tests/test_affected_guarantees.py::test_g3_boundary_uninvolved_symbol_is_not_named PASSED [ 41%]
+.harness/out/tests/test_affected_guarantees.py::test_g4_delete_with_callers_is_an_error PASSED [ 44%]
+.harness/out/tests/test_affected_guarantees.py::test_g4_delete_with_callers_still_names_them PASSED [ 46%]
+.harness/out/tests/test_affected_guarantees.py::test_g4_boundary_delete_without_callers_is_not_an_error PASSED [ 48%]
+.harness/out/tests/test_affected_guarantees.py::test_g5_never_reports_a_bare_zero FAILED [ 51%]
+.harness/out/tests/test_affected_guarantees.py::test_g5_flag_survives_a_partially_resolved_caller_list FAILED [ 53%]
+.harness/out/tests/test_affected_guarantees.py::test_g5_boundary_clean_importer_set_does_not_set_flag FAILED [ 55%]
+.harness/out/tests/test_affected_guarantees.py::test_g6_delete_without_callers_but_unresolved_sites_sets_flag FAILED [ 58%]
+.harness/out/tests/test_affected_guarantees.py::test_g6_unknowable_deletion_is_not_promoted_to_an_error PASSED [ 60%]
+.harness/out/tests/test_affected_guarantees.py::test_g7_unknowable_fires_through_a_re_export_chain FAILED [ 62%]
+.harness/out/tests/test_affected_guarantees.py::test_g7_re_exported_symbol_uses_its_defining_module_path PASSED [ 65%]
+.harness/out/tests/test_affected_guarantees.py::test_g7_boundary_clean_facade_importer_does_not_set_flag FAILED [ 67%]
+.harness/out/tests/test_affected_surface.py::test_report_names_the_revisions_it_was_asked_about PASSED [ 69%]
+.harness/out/tests/test_affected_surface.py::test_rows_carry_the_declared_fields PASSED [ 72%]
+.harness/out/tests/test_affected_surface.py::test_categories_stay_inside_the_declared_vocabulary PASSED [ 74%]
+.harness/out/tests/test_affected_surface.py::test_rows_expose_callers_unknowable FAILED [ 76%]
+.harness/out/tests/test_affected_surface.py::test_one_row_per_affected_symbol_path PASSED [ 79%]
+.harness/out/tests/test_affected_surface.py::test_a_new_symbol_is_categorised_added PASSED [ 81%]
+.harness/out/tests/test_affected_surface.py::test_a_decorator_swap_is_categorised_decorators PASSED [ 83%]
+.harness/out/tests/test_affected_surface.py::test_repo_accepts_str_and_path PASSED [ 86%]
+.harness/out/tests/test_affected_surface.py::test_any_rev_parseable_revision_is_accepted PASSED [ 88%]
+.harness/out/tests/test_affected_surface.py::test_no_index_artifact_is_written_into_the_repo PASSED [ 90%]
+.harness/out/tests/test_affected_surface.py::test_uncommitted_worktree_state_is_never_consulted PASSED [ 93%]
+.harness/out/tests/test_affected_surface.py::test_neither_revision_is_checked_out PASSED [ 95%]
+.harness/out/tests/test_affected_surface.py::test_an_older_pair_of_revisions_is_analysed_on_its_own_terms PASSED [ 97%]
+.harness/out/tests/test_affected_surface.py::test_render_report_writes_the_report_to_the_given_stream PASSED [100%]
+
+=================================== FAILURES ===================================
+______________________ test_g5_never_reports_a_bare_zero _______________________
+
+two_rev_repo = <function two_rev_repo.<locals>._make at 0x10a59eb60>
+
+    def test_g5_never_reports_a_bare_zero(two_rev_repo):
+        """An empty caller list is only honest when the flag admits the gap."""
+        report = _g5_report(two_rev_repo, G5_OTHER_BARE, "g5_bare")
+    
+        row = row_for(report, "mod.target")
+        assert row.category == "signature"
+        assert list(row.callers) == [], (
+            f"fixture invalid: no edge to target is resolvable here, got "
+            f"{row.callers!r}"
+        )
+>       assert unknowable(row) is True, (
+               ^^^^^^^^^^^^^^^
+            "zero callers reported without the unknowable flag is exactly the "
+            f"bare zero the guarantee forbids; row was {row!r}"
+        )
+
+.harness/out/tests/test_affected_guarantees.py:430: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+row = Row(path='mod.target', category='signature', detail='callers affected (0)', callers=[], error=False)
+
+    def unknowable(row) -> bool:
+        """Read Row.callers_unknowable, which the contract requires to exist.
+    
+        The attribute is an [authored] line against a [seeded] field list, and
+        the ratified reading is that the authored line leads: the attribute is
+        contract and is due to exist.  Reading it through a default would let
+        an absent attribute masquerade as an honest "unset", so its absence is
+        reported here rather than swallowed.
+        """
+        value = getattr(row, "callers_unknowable", _MISSING)
+>       assert value is not _MISSING, (
+            "Row carries no callers_unknowable attribute; the contract declares "
+            f"it as a Row attribute, so 'unset' cannot be observed. row was {row!r}"
+        )
+E       AssertionError: Row carries no callers_unknowable attribute; the contract declares it as a Row attribute, so 'unset' cannot be observed. row was Row(path='mod.target', category='signature', detail='callers affected (0)', callers=[], error=False)
+E       assert <object object at 0x104805330> is not <object object at 0x104805330>
+
+.harness/out/tests/conftest.py:164: AssertionError
+____________ test_g5_flag_survives_a_partially_resolved_caller_list ____________
+
+two_rev_repo = <function two_rev_repo.<locals>._make at 0x10a5eb240>
+
+    def test_g5_flag_survives_a_partially_resolved_caller_list(two_rev_repo):
+        report = _g5_report(two_rev_repo, G5_OTHER_PARTIAL, "g5_partial")
+    
+        row = row_for(report, "mod.target")
+        assert row.category == "signature"
+>       assert unknowable(row) is True, (
+               ^^^^^^^^^^^^^^^
+            "the importer set carries a subscript_call site, so the caller list "
+            f"cannot be claimed complete; row was {row!r}"
+        )
+
+.harness/out/tests/test_affected_guarantees.py:441: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+row = Row(path='mod.target', category='signature', detail='callers affected (1)', callers=[{'file': 'other.py', 'line': 3, 'in_symbol': 'other', 'kind': 'name'}], error=False)
+
+    def unknowable(row) -> bool:
+        """Read Row.callers_unknowable, which the contract requires to exist.
+    
+        The attribute is an [authored] line against a [seeded] field list, and
+        the ratified reading is that the authored line leads: the attribute is
+        contract and is due to exist.  Reading it through a default would let
+        an absent attribute masquerade as an honest "unset", so its absence is
+        reported here rather than swallowed.
+        """
+        value = getattr(row, "callers_unknowable", _MISSING)
+>       assert value is not _MISSING, (
+            "Row carries no callers_unknowable attribute; the contract declares "
+            f"it as a Row attribute, so 'unset' cannot be observed. row was {row!r}"
+        )
+E       AssertionError: Row carries no callers_unknowable attribute; the contract declares it as a Row attribute, so 'unset' cannot be observed. row was Row(path='mod.target', category='signature', detail='callers affected (1)', callers=[{'file': 'other.py', 'line': 3, 'in_symbol': 'other', 'kind': 'name'}], error=False)
+E       assert <object object at 0x104805330> is not <object object at 0x104805330>
+
+.harness/out/tests/conftest.py:164: AssertionError
+____________ test_g5_boundary_clean_importer_set_does_not_set_flag _____________
+
+two_rev_repo = <function two_rev_repo.<locals>._make at 0x10a5eafc0>
+
+    def test_g5_boundary_clean_importer_set_does_not_set_flag(two_rev_repo):
+        """The other side of G5: the flag must mean something."""
+        report = _g5_report(two_rev_repo, G5_OTHER_CLEAN, "g5_clean")
+    
+        row = row_for(report, "mod.target")
+        assert row.category == "signature"
+        assert call_sites(row) == {
+            ("other.py", line_of(G5_OTHER_CLEAN, "return target(value)")),
+        }
+>       assert unknowable(row) is False, (
+               ^^^^^^^^^^^^^^^
+            "no unresolved site exists in this importer set, so the flag must "
+            f"stay unset; row was {row!r}"
+        )
+
+.harness/out/tests/test_affected_guarantees.py:456: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+row = Row(path='mod.target', category='signature', detail='callers affected (2)', callers=[{'file': 'other.py', 'line': 1, '...': 'name'}, {'file': 'other.py', 'line': 5, 'in_symbol': 'other.use', 'kind': 'call', 'args': ['value']}], error=False)
+
+    def unknowable(row) -> bool:
+        """Read Row.callers_unknowable, which the contract requires to exist.
+    
+        The attribute is an [authored] line against a [seeded] field list, and
+        the ratified reading is that the authored line leads: the attribute is
+        contract and is due to exist.  Reading it through a default would let
+        an absent attribute masquerade as an honest "unset", so its absence is
+        reported here rather than swallowed.
+        """
+        value = getattr(row, "callers_unknowable", _MISSING)
+>       assert value is not _MISSING, (
+            "Row carries no callers_unknowable attribute; the contract declares "
+            f"it as a Row attribute, so 'unset' cannot be observed. row was {row!r}"
+        )
+E       AssertionError: Row carries no callers_unknowable attribute; the contract declares it as a Row attribute, so 'unset' cannot be observed. row was Row(path='mod.target', category='signature', detail='callers affected (2)', callers=[{'file': 'other.py', 'line': 1, 'in_symbol': 'other', 'kind': 'name'}, {'file': 'other.py', 'line': 5, 'in_symbol': 'other.use', 'kind': 'call', 'args': ['value']}], error=False)
+E       assert <object object at 0x104805330> is not <object object at 0x104805330>
+
+.harness/out/tests/conftest.py:164: AssertionError
+________ test_g6_delete_without_callers_but_unresolved_sites_sets_flag _________
+
+g6_report = AffectedReport(old='175d0447773badf0c19f5c52c8fd949879f27249', new='ca8f378c9eccb35831b2df12803d8abcfd34cdee', rows=[R...s=[], error=False), Row(path='mod.target', category='deleted', detail='no callers recorded', callers=[], error=False)])
+
+    def test_g6_delete_without_callers_but_unresolved_sites_sets_flag(g6_report):
+        row = row_for(g6_report, "mod.target")
+        assert row.category == "deleted"
+        assert list(row.callers) == [], (
+            f"fixture invalid: target was expected to have no callers, got "
+            f"{row.callers!r}"
+        )
+>       assert unknowable(row) is True, (
+               ^^^^^^^^^^^^^^^
+            "a deletion with an unresolved importer site cannot be claimed safe; "
+            f"row was {row!r}"
+        )
+
+.harness/out/tests/test_affected_guarantees.py:511: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+row = Row(path='mod.target', category='deleted', detail='no callers recorded', callers=[], error=False)
+
+    def unknowable(row) -> bool:
+        """Read Row.callers_unknowable, which the contract requires to exist.
+    
+        The attribute is an [authored] line against a [seeded] field list, and
+        the ratified reading is that the authored line leads: the attribute is
+        contract and is due to exist.  Reading it through a default would let
+        an absent attribute masquerade as an honest "unset", so its absence is
+        reported here rather than swallowed.
+        """
+        value = getattr(row, "callers_unknowable", _MISSING)
+>       assert value is not _MISSING, (
+            "Row carries no callers_unknowable attribute; the contract declares "
+            f"it as a Row attribute, so 'unset' cannot be observed. row was {row!r}"
+        )
+E       AssertionError: Row carries no callers_unknowable attribute; the contract declares it as a Row attribute, so 'unset' cannot be observed. row was Row(path='mod.target', category='deleted', detail='no callers recorded', callers=[], error=False)
+E       assert <object object at 0x104805330> is not <object object at 0x104805330>
+
+.harness/out/tests/conftest.py:164: AssertionError
+______________ test_g7_unknowable_fires_through_a_re_export_chain ______________
+
+two_rev_repo = <function two_rev_repo.<locals>._make at 0x10a634040>
+
+    def test_g7_unknowable_fires_through_a_re_export_chain(two_rev_repo):
+        repo, old, new = two_rev_repo(
+            _g7_files(G7_CORE_OLD, G7_APP_UNRESOLVED),
+            _g7_files(G7_CORE_NEW, G7_APP_UNRESOLVED),
+        )
+        report = analyze(repo, old, new)
+    
+        found = rows_ending(report, ".target")
+        assert len(found) == 1, (
+            f"expected one row for the changed symbol; report carries {paths(report)}"
+        )
+        row = found[0]
+        assert row.category == "signature"
+>       assert unknowable(row) is True, (
+               ^^^^^^^^^^^^^^^
+            "app.py reaches the symbol's module only through the pkg facade and "
+            f"carries an unresolved site, so the flag must fire; row was {row!r}"
+        )
+
+.harness/out/tests/test_affected_guarantees.py:588: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+row = Row(path='pkg.core.target', category='signature', detail='callers affected (3)', callers=[{'file': 'app.py', 'line': 1...bol': 'app', 'kind': 'name'}, {'file': 'pkg/__init__.py', 'line': 1, 'in_symbol': 'pkg', 'kind': 'name'}], error=False)
+
+    def unknowable(row) -> bool:
+        """Read Row.callers_unknowable, which the contract requires to exist.
+    
+        The attribute is an [authored] line against a [seeded] field list, and
+        the ratified reading is that the authored line leads: the attribute is
+        contract and is due to exist.  Reading it through a default would let
+        an absent attribute masquerade as an honest "unset", so its absence is
+        reported here rather than swallowed.
+        """
+        value = getattr(row, "callers_unknowable", _MISSING)
+>       assert value is not _MISSING, (
+            "Row carries no callers_unknowable attribute; the contract declares "
+            f"it as a Row attribute, so 'unset' cannot be observed. row was {row!r}"
+        )
+E       AssertionError: Row carries no callers_unknowable attribute; the contract declares it as a Row attribute, so 'unset' cannot be observed. row was Row(path='pkg.core.target', category='signature', detail='callers affected (3)', callers=[{'file': 'app.py', 'line': 1, 'in_symbol': 'app', 'kind': 'name'}, {'file': 'app.py', 'line': 3, 'in_symbol': 'app', 'kind': 'name'}, {'file': 'pkg/__init__.py', 'line': 1, 'in_symbol': 'pkg', 'kind': 'name'}], error=False)
+E       assert <object object at 0x104805330> is not <object object at 0x104805330>
+
+.harness/out/tests/conftest.py:164: AssertionError
+___________ test_g7_boundary_clean_facade_importer_does_not_set_flag ___________
+
+two_rev_repo = <function two_rev_repo.<locals>._make at 0x10a6344a0>
+
+    def test_g7_boundary_clean_facade_importer_does_not_set_flag(two_rev_repo):
+        """The other side of G7: the facade alone is not grounds for the flag."""
+        repo, old, new = two_rev_repo(
+            _g7_files(G7_CORE_OLD, G7_APP_CLEAN),
+            _g7_files(G7_CORE_NEW, G7_APP_CLEAN),
+        )
+        report = analyze(repo, old, new)
+    
+        found = rows_ending(report, ".target")
+        assert len(found) == 1, f"report carries {paths(report)}"
+>       assert unknowable(found[0]) is False, (
+               ^^^^^^^^^^^^^^^^^^^^
+            "a re-export chain with no unresolved site must not set the flag; "
+            f"row was {found[0]!r}"
+        )
+
+.harness/out/tests/test_affected_guarantees.py:616: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+row = Row(path='pkg.core.target', category='signature', detail='callers affected (3)', callers=[{'file': 'app.py', 'line': 1...: 'call', 'args': ['value']}, {'file': 'pkg/__init__.py', 'line': 1, 'in_symbol': 'pkg', 'kind': 'name'}], error=False)
+
+    def unknowable(row) -> bool:
+        """Read Row.callers_unknowable, which the contract requires to exist.
+    
+        The attribute is an [authored] line against a [seeded] field list, and
+        the ratified reading is that the authored line leads: the attribute is
+        contract and is due to exist.  Reading it through a default would let
+        an absent attribute masquerade as an honest "unset", so its absence is
+        reported here rather than swallowed.
+        """
+        value = getattr(row, "callers_unknowable", _MISSING)
+>       assert value is not _MISSING, (
+            "Row carries no callers_unknowable attribute; the contract declares "
+            f"it as a Row attribute, so 'unset' cannot be observed. row was {row!r}"
+        )
+E       AssertionError: Row carries no callers_unknowable attribute; the contract declares it as a Row attribute, so 'unset' cannot be observed. row was Row(path='pkg.core.target', category='signature', detail='callers affected (3)', callers=[{'file': 'app.py', 'line': 1, 'in_symbol': 'app', 'kind': 'name'}, {'file': 'app.py', 'line': 5, 'in_symbol': 'app.run', 'kind': 'call', 'args': ['value']}, {'file': 'pkg/__init__.py', 'line': 1, 'in_symbol': 'pkg', 'kind': 'name'}], error=False)
+E       assert <object object at 0x104805330> is not <object object at 0x104805330>
+
+.harness/out/tests/conftest.py:164: AssertionError
+_____________________ test_rows_expose_callers_unknowable ______________________
+
+simple = (PosixPath('/private/var/folders/5c/zn1hsyrd3xj86pzgy_l3vn5m0000gn/T/pytest-of-rokko/pytest-14/test_rows_expose_callers_unkno0/repo'), '50d991f6845d596ccffc1abb413764e37ea39215', '1c36307bb0d24370a02cf08973ef4bbef5bcb9e7')
+
+    def test_rows_expose_callers_unknowable(simple):
+        """The flag is a declared Row attribute, so it must be observable.
+    
+        Without it there is no way to tell an honest "no unresolved sites were
+        detected" from a caller list that simply never admits what it missed,
+        which is the distinction three of the guarantees rest on.
+        """
+        repo, old, new = simple
+        report = analyze(repo, old, new)
+        missing = [row.path for row in report.rows
+                   if not hasattr(row, "callers_unknowable")]
+>       assert missing == [], (
+            f"rows carry no callers_unknowable attribute: {missing}"
+        )
+E       AssertionError: rows carry no callers_unknowable attribute: ['mod.target']
+E       assert ['mod.target'] == []
+E         
+E         Left contains one more item: 'mod.target'
+E         
+E         Full diff:
+E         - []
+E         + [
+E         +     'mod.target',
+E         + ]
+
+.harness/out/tests/test_affected_surface.py:94: AssertionError
+=========================== short test summary info ============================
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g5_never_reports_a_bare_zero
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g5_flag_survives_a_partially_resolved_caller_list
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g5_boundary_clean_importer_set_does_not_set_flag
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g6_delete_without_callers_but_unresolved_sites_sets_flag
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g7_unknowable_fires_through_a_re_export_chain
+FAILED .harness/out/tests/test_affected_guarantees.py::test_g7_boundary_clean_facade_importer_does_not_set_flag
+FAILED .harness/out/tests/test_affected_surface.py::test_rows_expose_callers_unknowable
+========================= 7 failed, 36 passed in 7.38s =========================
