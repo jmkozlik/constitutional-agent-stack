@@ -1,6 +1,32 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 009. **Restructure + origins
+**Updated:** 2026-08-08, after report 010. **Addendum applied verbatim;
+containment ruled and enforced; 3d-1r LANDED.** 5 ATTEST, code built
+inside the fence, **index_assembly delta `1 outstanding` → `empty`**;
+`import_origins('analyzer.indexer')` names its four importers — 3d-2's
+dependency is built. **242 tests (analyzer + harness); lex v1's own suite was mid-write and is counted separately.** The handoff channel is populated for
+the first time (ARCHITECTURE (2) specified it; nothing had ever filled
+it, which is why 007's "prepare the answer" had no home). **F29 fired on
+its first real dispatch**: the same refs.py read that was a voluntary
+disclosure last round was captured automatically, three times.
+**TWO RULINGS NEEDED — R1** (D-3d1r-2: the ruled source is unsatisfiable
+— ImportTable discards `.impl` from `import pkg.impl` and stores only a
+bool for star imports, so bullets 4/5 cannot come from it; the executor
+took the binding from the statement, left all resolution in refs, and
+filed instead of working around; sub-ruling on one private import,
+`refs._scope_stmts`) and **R2** (D-3d1r-3: `from pkg.impl import
+CONSTANT` — source module fine, name not a def — is named by neither
+ruled case, and every stdlib import is this case). D-3d1r-1 was mine and
+is fixed: the F20 canary I re-pointed at a live node's only outstanding
+item was guaranteed to break on success; re-pinned to a fixture. New:
+**F34** (F28 residual, candidate recorded, not built), **D-3d1r-4**.
+Containment now supersedes I5 for testers (foreign types are an executor
+affordance). **lex v1 built but UNREVIEWED and uncommitted** — 9 modules,
+~100 tests, old launcher demoted to `lex-v0`; its own report has not
+landed. Index 30→42, all lex. Next: R1/R2 → 3d-2 → lex v1 review → the
+round after conducts through lex.
+
+**Previous:** 2026-08-08, after report 009. **Restructure + origins
 reconciliation applied; F28/F29 built; a P6 leak found and closed.**
 index_assembly owns indexer.py; **W05 and E08 both zero, asserted by test
 — F30 retired**. The restructure needed more than the one ruled edge
