@@ -1,0 +1,126 @@
+"""Both sides of the errors clause of affected_symbols.
+
+    Row.error is set iff the old index records callers for the symbol and
+    either the symbol was deleted at new_rev or its changed file fails to
+    parse at new_rev.
+    AffectedReport.has_error: true iff any row.error
+
+The deletion branch is exercised by G4 in the guarantees suite; this file
+covers the parse-failure branch and the negative side of the iff.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from conftest import CATEGORIES, analyze, line_of, paths, row_for, rows_for
+
+MOD_OLD = """\
+def target(a):
+    return a
+"""
+
+# The colon is unbalanced, so the file does not parse at new_rev.
+MOD_UNPARSEABLE = """\
+def target(a:
+    return a
+"""
+
+OTHER_CALLS_TARGET = """\
+from mod import target
+
+
+def caller():
+    return target(1)
+"""
+
+OTHER_IGNORES_TARGET = """\
+def caller():
+    return 0
+"""
+
+
+@pytest.fixture
+def parse_failure_with_callers(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": MOD_OLD, "other.py": OTHER_CALLS_TARGET},
+        {"mod.py": MOD_UNPARSEABLE, "other.py": OTHER_CALLS_TARGET},
+    )
+    return analyze(repo, old, new)
+
+
+def test_parse_failure_with_callers_sets_row_error(parse_failure_with_callers):
+    row = row_for(parse_failure_with_callers, "mod.target")
+    assert row.error is True, (
+        "the symbol's file does not parse at new_rev and callers are on "
+        f"record, so the row must carry the error; row was {row!r}"
+    )
+    assert row.category in CATEGORIES
+
+
+def test_parse_failure_with_callers_sets_has_error(parse_failure_with_callers):
+    assert parse_failure_with_callers.has_error is True
+
+
+def test_parse_failure_does_not_swallow_the_symbol(parse_failure_with_callers):
+    assert rows_for(parse_failure_with_callers, "mod.target"), (
+        "an unparseable file must not make its symbols disappear from the "
+        f"report; report carries {paths(parse_failure_with_callers)}"
+    )
+
+
+def test_boundary_parse_failure_without_callers_is_not_an_error(two_rev_repo):
+    """The other side of the iff: no recorded callers, no error."""
+    repo, old, new = two_rev_repo(
+        {"mod.py": MOD_OLD, "other.py": OTHER_IGNORES_TARGET},
+        {"mod.py": MOD_UNPARSEABLE, "other.py": OTHER_IGNORES_TARGET},
+    )
+    report = analyze(repo, old, new)
+
+    assert all(row.error is False for row in report.rows), (
+        f"no symbol here has recorded callers; rows were {report.rows!r}"
+    )
+    assert report.has_error is False
+
+
+def test_boundary_body_change_with_callers_is_not_an_error(two_rev_repo):
+    """The other side of the iff: callers alone are not an error either."""
+    changed = """\
+def target(a):
+    return a + 1
+"""
+    repo, old, new = two_rev_repo(
+        {"mod.py": MOD_OLD, "other.py": OTHER_CALLS_TARGET},
+        {"mod.py": changed, "other.py": OTHER_CALLS_TARGET},
+    )
+    report = analyze(repo, old, new)
+
+    assert row_for(report, "mod.target").error is False
+    assert report.has_error is False
+
+
+def test_has_error_agrees_with_its_rows(two_rev_repo):
+    """has_error is defined as true iff any row.error, in both directions."""
+    deleted = """\
+def keep():
+    return 0
+"""
+    for new_mod, expected in ((MOD_UNPARSEABLE, True), (deleted, True)):
+        repo, old, new = two_rev_repo(
+            {"mod.py": MOD_OLD, "other.py": OTHER_CALLS_TARGET},
+            {"mod.py": new_mod, "other.py": OTHER_CALLS_TARGET},
+            name=f"repo_{expected}_{len(new_mod)}",
+        )
+        report = analyze(repo, old, new)
+        assert report.has_error is any(row.error for row in report.rows)
+        assert report.has_error is expected
+
+
+def test_caller_line_survives_a_parse_failure(parse_failure_with_callers):
+    """The error must not cost the caller record that justifies it."""
+    from conftest import call_sites
+
+    row = row_for(parse_failure_with_callers, "mod.target")
+    assert call_sites(row) == {
+        ("other.py", line_of(OTHER_CALLS_TARGET, "return target(1)")),
+    }

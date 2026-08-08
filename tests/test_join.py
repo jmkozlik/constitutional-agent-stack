@@ -944,13 +944,21 @@ def test_f20_locked_demonstration_on_real_spec():
     assert stat("analyzer.affected.Row.category") == "present"
     assert stat("analyzer.affected.Row.path") == "present"
     assert stat("analyzer.affected.Row.callers:") == "present"
-    assert stat("analyzer.affected.Row.callers_unknowable") == "absent"
+    # callers_unknowable was the absent one when 3b filed this. 3d-2 built
+    # it, so the demonstration's live half is now that it reads present —
+    # the same lesson as D-3d1r-1: a demonstration must not be pinned to a
+    # live node's outstanding item, or succeeding at the work destroys the
+    # evidence that the work was needed. The absent-side proof lives in
+    # test_f20_callable_extension_absent_until_built, on a fixture.
+    assert stat("analyzer.affected.Row.callers_unknowable") == "present"
     assert stat("analyzer.affected.Row.error") == "present"
     assert stat("analyzer.affected.AffectedReport.has_error") == "present"
     assert "authored" in stat("analyzer.affected.compute_affected:")  # prose: exempt
     assert "authored" in stat("analyzer.affected.AffectedReport:")   # behavioral: exempt
-    assert delta["kind"] == "partial"
-    assert delta["outstanding"] and any("callers_unknowable" in o for o in delta["outstanding"])
+    # Every structural line now presence-checks present, so the node has no
+    # outstanding work — F20 still discriminating, nothing left to find.
+    assert delta["kind"] == "empty"
+    assert delta["outstanding"] == []
 
 
 def test_f20_callable_extension_in_scope_presence_checks():

@@ -1,0 +1,36 @@
+
+=== own-file clause: star import inside the symbol's own module ===
+  row              : mod.target  category=signature
+  importer set     : ['mod.py']
+  unresolved(old)  : {'mod.py': 'star_import'}
+  intersection     : ['mod.py']
+  callers recorded : 0
+  callers_unknowable = True
+  detail           : 'callers affected (0); importer set carries unresolved sites'
+
+=== own-file control: no trigger anywhere, no importers ===
+  row              : mod.target  category=signature
+  importer set     : ['mod.py']
+  unresolved(old)  : {}
+  intersection     : []
+  callers recorded : 0
+  callers_unknowable = False
+  detail           : 'callers affected (0)'
+
+=== importer-file clause: subscript_call in an importing file ===
+  row              : mod.target  category=signature
+  importer set     : ['mod.py', 'other.py']
+  unresolved(old)  : {'other.py': 'subscript_call'}
+  intersection     : ['other.py']
+  callers recorded : 0
+  callers_unknowable = True
+  detail           : 'callers affected (0); importer set carries unresolved sites'
+
+=== re-export chain: importer reaches the module only via the facade ===
+  row              : pkg.core.target  category=signature
+  importer set     : ['app.py', 'pkg/__init__.py', 'pkg/core.py']
+  unresolved(old)  : {'app.py': 'subscript_call'}
+  intersection     : ['app.py']
+  callers recorded : 3
+  callers_unknowable = True
+  detail           : 'callers affected (3); importer set carries unresolved sites'

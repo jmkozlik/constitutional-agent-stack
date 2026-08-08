@@ -158,7 +158,7 @@
       - "analyzer.affected.render_report(report: AffectedReport, out=sys.stdout) -> None  [seeded]"
     types:
       - "analyzer.affected.AffectedReport(old: str, new: str, rows: list)  [seeded]"
-      - "analyzer.affected.Row(path: str, category: str, detail: str, callers: list = field(default_factory=list), error: bool = False)  [seeded]"
+      - "analyzer.affected.Row(path: str, category: str, detail: str, callers: list = field(default_factory=list), error: bool = False, callers_unknowable: bool = False)  [seeded]"
       - "analyzer.affected.Row.category ∈ signature | body | decorators | moved | deleted | added | unknown  [authored]"
       - "analyzer.affected.Row.path: the affected symbol's dotted path; one row per affected symbol path  [authored]"
       - "analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]"
