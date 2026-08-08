@@ -1,6 +1,31 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 010. **Addendum applied verbatim;
+**Updated:** 2026-08-08, after report 011. **3d-2 LANDS — step 3 closes.**
+R1/R2 applied verbatim (one composition decision flagged: R1's line also
+carried the ratified shape + sort rule, so only the contradicted clause
+was struck and the ruled text added as its own entry). Sub-ruling built:
+`analyzer.refs.scope_statements` public, indexer uses it, reseeded to
+[seeded] with byte-proof. **Gate: 3 × sufficient_with_gaps — first clean
+gate since 007**; replay 3/3 IDENTICAL. **3d-2 built callers_unknowable
+inside the fence and 3t's SEVEN BLIND TESTS FLIPPED — 43/43, unmodified,
+verified by me from the harvest with hashes recorded and git confirming
+they were untouched since 007.** **Every node's delta now reads `empty
+(validation-only)`** — the arc from 3b's D1 filing through D1-B, the
+index_assembly restructure, 3d-1's stop, 3d-1r and R1/R2 is closed.
+**The reseed cycle fired for the first time**: Row grew the attribute, its
+[seeded] line went shape-mismatch, and the node stayed outstanding until
+the line was re-seeded byte-for-byte — the delta refusing to call work
+done while the spec described the old shape. 343 tests. The F20 locked
+demo was mine and was D-3d1r-1 repeated one round later (a demonstration
+pinned to a live node's outstanding item dies when the work succeeds);
+fixed in both places. **D-3d1r-4 mechanical form PROPOSED**: one
+`.gitignore` line (`.harness/`) so dispatch scratch joins evidence's
+never-indexable-source practice — verified the defect is live.
+**Next: the round after this conducts through lex v1** (built, reviewed,
+committed, never driven). Open non-blocking: F32, F34, F4 D/E, F27, 3t's
+D-2/D-3/D-4.
+
+**Previous:** 2026-08-08, after report 010. **Addendum applied verbatim;
 containment ruled and enforced; 3d-1r LANDED.** 5 ATTEST, code built
 inside the fence, **index_assembly delta `1 outstanding` → `empty`**;
 `import_origins('analyzer.indexer')` names its four importers — 3d-2's
