@@ -947,10 +947,121 @@ def test_f20_locked_demonstration_on_real_spec():
     assert stat("analyzer.affected.Row.callers_unknowable") == "absent"
     assert stat("analyzer.affected.Row.error") == "present"
     assert stat("analyzer.affected.AffectedReport.has_error") == "present"
-    assert "authored" in stat("analyzer.affected.compute_affected")  # behavioral: exempt
+    assert "authored" in stat("analyzer.affected.compute_affected:")  # prose: exempt
     assert "authored" in stat("analyzer.affected.AffectedReport:")   # behavioral: exempt
     assert delta["kind"] == "partial"
     assert delta["outstanding"] and any("callers_unknowable" in o for o in delta["outstanding"])
+
+
+def test_f20_callable_extension_in_scope_presence_checks():
+    # Ratified YES: an authored CALLABLE line whose subject is inside the
+    # node's own write scope presence-checks by name. compute_affected is
+    # authored, in affected.py (own scope), and built -> present.
+    plan = join.load_plan(PROJECT_ROOT / "harness" / "specs")
+    index = build_index(PROJECT_ROOT, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(
+        plan, index, resolved, "affected_symbols", repo=PROJECT_ROOT
+    )
+    status = next(
+        s for e, s in delta["callables"]
+        if e.startswith("analyzer.affected.compute_affected(")
+    )
+    assert status == "present"
+
+
+def test_f20_callable_extension_absent_until_built_on_real_spec():
+    # D1-B's import_origins is authored, inside symbol_table's own write
+    # scope (analyzer/indexer.py), and NOT built -> absent, so the node
+    # honestly reports outstanding work instead of validation-only.
+    plan = join.load_plan(PROJECT_ROOT / "harness" / "specs")
+    index = build_index(PROJECT_ROOT, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(
+        plan, index, resolved, "symbol_table", repo=PROJECT_ROOT
+    )
+    status = next(
+        s for e, s in delta["callables"]
+        if e.startswith("analyzer.indexer.import_origins(")
+    )
+    assert status == "absent"
+    assert delta["kind"] == "partial"
+    assert any("import_origins" in o for o in delta["outstanding"])
+    # Seeded callables in the same scope stay unaffected.
+    assert next(
+        s for e, s in delta["callables"]
+        if e.startswith("analyzer.indexer.build_index(")
+    ) == "present"
+
+
+def test_f20_callable_outside_own_scope_stays_behavioral(tmp_path):
+    spec = SPEC_SURFACED.replace(
+        "callables:\n      - core.a.alpha() -> int",
+        'callables:\n      - "core.base.not_ours(x: int) -> int  [authored]"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "consumer_a", repo=repo)
+    # consumer_a writes core/a.py; the subject lives in core/base.py, which
+    # it does not own — exempt, not "absent".
+    assert "authored" in delta["callables"][0][1]
+
+
+# --- F23 candidate one (ratified): replay pins the join version -------------
+
+
+def test_replay_pins_join_version_old_packet_replays_identical():
+    # Report 005 demonstrated the defect: 3b's shipped packet — correct when
+    # it shipped — reported DIVERGED because the checker rebuilt it with a
+    # join whose packet FORMAT had since moved. Pinned to the recorded
+    # commit's own code, it must report IDENTICAL.
+    shipped = PROJECT_ROOT / "docs" / "evidence" / "step3b" / "packet.md"
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "replay", "affected_symbols",
+         "--commit", "4b30c3814ccd2b4cfd5ac4b18b2f177ba59355eb",
+         "--shipped", str(shipped), "--repo", str(PROJECT_ROOT)],
+        capture_output=True, text=True, cwd=PROJECT_ROOT,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "IDENTICAL" in result.stdout
+
+
+def test_replay_still_diverges_on_a_real_mismatch(tmp_path):
+    shipped = tmp_path / "tampered.md"
+    original = (
+        PROJECT_ROOT / "docs" / "evidence" / "step3b" / "packet.md"
+    ).read_text()
+    shipped.write_text(original.replace("affected_symbols", "affected_symbols ", 1))
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.join", "replay", "affected_symbols",
+         "--commit", "4b30c3814ccd2b4cfd5ac4b18b2f177ba59355eb",
+         "--shipped", str(shipped), "--repo", str(PROJECT_ROOT)],
+        capture_output=True, text=True, cwd=PROJECT_ROOT,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 1
+    assert "DIVERGED" in result.stdout
+
+
+# --- v0.5 bundle: observed_through (B) + seeded-growth policy (C) ------------
+
+
+def test_observed_through_renders_in_both_roles():
+    for role in ("executor", "tester"):
+        packet = real_packet(role=role)
+        assert "observed_through: the value returned by the surface callable" in packet
+
+
+def test_seeded_growth_policy_in_both_protocols():
+    executor = real_packet(role="executor")
+    tester = real_packet(role="tester")
+    assert "Seeded vs authored (ratified)" in executor
+    assert "authorises you to add exactly that" in executor
+    assert "Seeded vs authored (ratified)" in tester
+    assert "authored line leads" in tester
 
 
 # --- F21/F22/F3 (ratified): catalog, interpreter, protocol-in-packet ---------

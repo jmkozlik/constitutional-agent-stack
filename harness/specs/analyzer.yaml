@@ -9,6 +9,9 @@
 
 - language: python
 
+- observed_through: the value returned by the surface callable, unless a
+    done_when bullet names a rendering callable explicitly
+
 - id: gitio
   one_liner: Git plumbing for the analyzer - file listings, blob contents, and
              diff ranges at a rev, all read from git objects without checkouts.
@@ -40,8 +43,13 @@
       - "analyzer.indexer.serialize(index: dict) -> str  [seeded]"
       - "analyzer.indexer.load_index(path: str | Path) -> dict  [seeded]"
       - "analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]  [seeded]"
+      - "analyzer.indexer.import_origins(index: dict, module: str) -> list[str]  [authored]"
     types:
       - "analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]"
+      - "analyzer.indexer.record: the index adds a top-level imports table —
+         {file: [{name: str, origins: [dotted origins as resolved by the
+         reference layer, re-export chase included]}]} — taken from the
+         Resolver's output at build time, never recomputed downstream  [authored]"
     errors:
       - "analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; build_index instead records an unresolved site with reason parse_error  [seeded]"
       - "analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]"
@@ -50,6 +58,8 @@
     - The emitted index maps every symbol path to at least one record carrying its definition location and signature.
     - Reformatting whitespace does not change the body hash.
     - Ranges are recomputed per commit, never stored as identity.
+    - build_index exposes each file's import bindings with resolved origins,
+      re-export chains included, and import_origins answers from them.
   open:
     - Nested functions as their own symbols, or folded into the parent?
     - Index module level constants?
@@ -101,6 +111,10 @@
       - "analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]"
       - "analyzer.affected.AffectedReport: compiled at call time — compute_affected builds the old and new indexes internally from old_rev and new_rev; no pre-built index artifact is read or required  [authored]"
       - "analyzer.affected.Row.callers_unknowable: set iff the old index records unresolved sites in the symbol's importer set — the symbol's own file, plus every file whose import table contains any binding whose resolved origin is the symbol's defining module (module imports, from-imports of any name in it, and re-export chains). Set means edges may exist that no record names; no edges are invented. Unset means no such sites were detected, and is not a completeness guarantee for channels the analyzer cannot see, such as dynamic imports.  [authored]"
+      - "analyzer.affected.compute_affected: repo is a path to a git repository;
+         old_rev and new_rev are any git revisions rev-parse-able within it. Both
+         indexes are built from git objects at those revisions — neither rev is
+         checked out, and uncommitted worktree state is never consulted.  [authored]"
     errors:
       - "analyzer.affected.Row.error: Row.error is set iff the old index records callers for the symbol and either the symbol was deleted at new_rev or its changed file fails to parse at new_rev.  [authored]"
       - "analyzer.affected.AffectedReport.has_error: true iff any row.error  [authored]"
@@ -111,6 +125,9 @@
     - Deleting a symbol with recorded callers is an error, not a silent success.
     - A signature change to a symbol whose importer set carries unresolved sites reports callers_unknowable, never a bare zero.
     - Deleting a symbol with no recorded callers but unresolved sites in its importer set reports callers_unknowable.
+    - "callers_unknowable fires through a re-export chain: an importer reaching
+       the symbol's module only via a package facade, carrying an unresolved
+       site, sets the flag."
 
 - id: analyzer_cli
   one_liner: Command line entry point exposing index, symbol, affected, and unresolved.

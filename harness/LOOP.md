@@ -76,6 +76,24 @@ Queue: 3b → 3c → F18 ratification → 3d → W05 restructure.
   retires F6).
 - Authoritative findings ledger: harness/reports/002.md (F1–F18).
 
+## Standing law
+
+- **Role is an explicit input.** Any derivation whose correct output differs
+  by role takes role as an explicit input — never infers it, never assumes
+  the executor case. (Ratified 2026-08-07 from the fence: tester allowed set
+  empty, `.harness/out/` channel, executor byte-identical.)
+- **Stop-routing.** A blocking signal stops the line it gates — not every
+  line. A verdict whose blocking substance is an already-ruled, queued
+  finding is recorded as corroboration of that ruling, not as a new stop.
+  (Ratified as practiced in 006's accounting table.)
+- **Seeded vs authored.** An `[authored]` line naming an attribute of a
+  `[seeded]` type authorises the executor to add exactly that attribute; the
+  seeded line reseeds byte-for-byte after the work lands. The authored line
+  leads; the pair is not a contradiction to file.
+- **Observation channel.** Guarantees are asserted against the value
+  returned by the surface callable, unless a done_when bullet names a
+  rendering callable explicitly (spec-level `observed_through:`).
+
 ## Protocol (ratified 2026-08-07)
 
 - Reports to the ratifier: `harness/reports/NNN.md`, committed. Sections:

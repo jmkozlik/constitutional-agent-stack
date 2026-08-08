@@ -12,6 +12,7 @@ Run: python -m harness.join plan|packet ...
 
 import argparse
 import hashlib
+import os
 import posixpath
 import re
 import sys
@@ -460,18 +461,45 @@ def _split_provenance(entry: str) -> tuple:
 AUTHORED_STATUS = "authored (contract — tester-verified, delta-exempt)"
 
 
-def _authored_status(text: str, by_path: dict) -> str:
+def _subject_in_scope(subject: str, scope_files: set) -> bool:
+    """Does a dotted subject live in one of the node's own write-scope
+    files? Tries successively shorter module prefixes so Class.method
+    subjects resolve to their defining module."""
+    parts = subject.split(".")
+    for cut in range(len(parts) - 1, 0, -1):
+        stem = "/".join(parts[:cut])
+        if f"{stem}.py" in scope_files or f"{stem}/__init__.py" in scope_files:
+            return True
+    return False
+
+
+def _authored_status(
+    text: str, by_path: dict, *, scope_files=None, section: str = ""
+) -> str:
     """F20 (ratified, from 3b's D2 filing): an authored line whose subject
     is <DeclaredType>.<attr> makes a STRUCTURAL claim and presence-checks
     — 'present' or 'absent' (absent counts outstanding). Behavioral and
     non-structural authored lines remain exempt; the attestation channel
-    is the backstop, as 3b demonstrated."""
+    is the backstop, as 3b demonstrated.
+
+    Ratified extension (report 005's flagged mechanism question, answered
+    YES): an authored CALLABLE line whose dotted subject lies inside the
+    node's OWN write scope also presence-checks by name — absent until
+    built. Callables outside the write scope stay behavioral: the node
+    does not own them and cannot be held to their existence."""
     cuts = [(text.find(sep), sep) for sep in ("(", " ∈ ", ": ")]
     cuts = [(i, s) for i, s in cuts if i >= 0]
     if cuts:
         i, sep = min(cuts)
         if sep == "(":
-            return AUTHORED_STATUS  # callable-signature shape: behavioral
+            subject = text[:i].strip()
+            if (
+                section == "callables"
+                and scope_files
+                and _subject_in_scope(subject, scope_files)
+            ):
+                return "present" if subject in by_path else "absent"
+            return AUTHORED_STATUS  # callable outside own scope: behavioral
         subject = text[:i].strip()
     else:
         subject = text.strip()
@@ -573,12 +601,18 @@ def compute_delta(
     for info in resolved[node_id].values():
         for record in info["symbols"]:
             by_path[record["path"]].append(record)
+    scope_files = set(resolved[node_id])
     callables, types, errors = _surface_sections(node)
     callables_delta = []
     for entry in callables:
         text, provenance = _split_provenance(entry)
         if provenance == "authored":
-            callables_delta.append((entry, _authored_status(text, by_path)))
+            callables_delta.append((
+                entry,
+                _authored_status(
+                    text, by_path, scope_files=scope_files, section="callables"
+                ),
+            ))
             continue
         path, signature = _parse_surface(text)
         records = by_path.get(path, [])
@@ -737,6 +771,10 @@ PROTOCOL = {
         "Fence: writes outside your write scope, .harness/scratch/, and",
         "  .harness/out/ are violations. On a denial, record it verbatim;",
         "  do not work around.",
+        "Seeded vs authored (ratified): an [authored] line naming an",
+        "  attribute of a [seeded] type authorises you to add exactly that",
+        "  attribute. The [seeded] line reseeds byte-for-byte after the work",
+        "  lands. The two lines are not in conflict; the authored one leads.",
     ],
     "tester": [
         "Deliverables (files, harvested before teardown):",
@@ -751,6 +789,10 @@ PROTOCOL = {
         "The implementation is structurally absent from your packet (P6).",
         "  Tests invoke only the declared surface. Inventing an interface is",
         "  a failure even when the guess would match.",
+        "Seeded vs authored (ratified): where an [authored] line names an",
+        "  attribute a [seeded] type's field list does not carry, the",
+        "  authored line leads — the attribute is contract, due to exist,",
+        "  and is not a spec contradiction to file.",
     ],
 }
 
@@ -845,6 +887,11 @@ def assemble_packet(
     lines += ["## Task  [provenance: spec, verbatim]", "", f"node: {node_id}"]
     if plan.meta.get("language"):
         lines.append(f"language: {plan.meta['language']}")
+    # Proposal B (ratified): the observation channel, spec-level so it binds
+    # every node at once — both probes split on whether a guarantee asserts
+    # against the returned value or against rendered text.
+    if plan.meta.get("observed_through"):
+        lines.append(f"observed_through: {plan.meta['observed_through']}")
     surface_lines = _render_surface(plan, node_id)
     if role == "tester":
         # P6/JA7 + v0.2: the tester's packet is the spec node's guarantees
@@ -1097,12 +1144,20 @@ def _cmd_packet(args) -> int:
 def _cmd_replay(args) -> int:
     """F19: the standing replay check as a first-class verdict.
 
-    Rebuilds the packet at the pinned commit — spec and identities read
-    FROM THAT COMMIT, never the worktree — and compares byte-for-byte
+    Rebuilds the packet at the pinned commit and compares byte-for-byte
     against the shipped packet. Verdicts are disjoint: IDENTICAL (exit 0),
     DIVERGED (exit 1), CHECK-ERROR (exit 2). A missing or unreadable
-    input is an error state, never a divergence."""
+    input is an error state, never a divergence.
+
+    F23 (ratified, candidate one): replay pins the JOIN VERSION as well as
+    the spec. The whole tree at the recorded commit is exported and the
+    rebuild runs from THAT commit's own harness/analyzer code. Otherwise a
+    later change to the packet format makes every previously-correct packet
+    report DIVERGED, conflating 'the packet was wrong' with 'the compiler
+    moved on'. Only the git object store is shared — the repo argument
+    supplies the blobs to index at that commit."""
     import difflib
+    import subprocess as _sp
     import tempfile
 
     try:
@@ -1114,36 +1169,42 @@ def _cmd_replay(args) -> int:
         from analyzer import gitio
 
         sha = gitio.resolve_commit(args.repo, args.commit)
-        tree_paths = [
-            p
-            for p in gitio._git(args.repo, "ls-tree", "-r", "--name-only",
-                                "--full-tree", sha).decode().splitlines()
-            if p.startswith("harness/specs/") and p.endswith(".yaml")
-            or p.startswith("harness/identities/")
-        ]
-        if not any(p.startswith("harness/specs/") for p in tree_paths):
+        tree_paths = gitio._git(
+            args.repo, "ls-tree", "-r", "--name-only", "--full-tree", sha
+        ).decode().splitlines()
+        if not any(p.startswith("harness/specs/") and p.endswith(".yaml")
+                   for p in tree_paths):
             print(
                 f"CHECK-ERROR: no harness/specs/*.yaml at {sha[:12]} — "
                 "replay requires the spec to be committed",
                 file=sys.stderr,
             )
             return 2
-        blobs = gitio.read_files(args.repo, sha, tree_paths)
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            for rel, content in blobs.items():
-                target = root / rel
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(content)
-            plan = load_plan(root / "harness" / "specs")
-            index = build_index(args.repo, sha)
-            resolved = resolve_writes(plan, index)
-            rebuilt = assemble_packet(
-                plan, index, resolved, args.node, args.role,
-                identities_dir=root / "harness" / "identities",
-                repo=args.repo,
+            archive = _sp.run(
+                ["git", "-C", str(args.repo), "archive", sha],
+                capture_output=True, check=True,
+            ).stdout
+            _sp.run(["tar", "-x", "-C", str(root)], input=archive, check=True)
+            proc = _sp.run(
+                [sys.executable, "-m", "harness.join", "packet", args.node,
+                 "--role", args.role, "--commit", sha,
+                 "--repo", str(Path(args.repo).resolve()),
+                 "--specs", str(root / "harness" / "specs")],
+                capture_output=True, text=True, cwd=str(root),
+                env={**os.environ, "PYTHONPATH": str(root)},
             )
-    except (JoinError, speccc.SpecError, GitError, OSError) as exc:
+            if proc.returncode != 0:
+                print(
+                    "CHECK-ERROR: rebuild at the pinned join version failed: "
+                    f"{proc.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                return 2
+            rebuilt = proc.stdout
+    except (JoinError, speccc.SpecError, GitError, OSError,
+            _sp.CalledProcessError) as exc:
         print(f"CHECK-ERROR: rebuild failed: {exc}", file=sys.stderr)
         return 2
     if rebuilt == shipped:
