@@ -1,0 +1,7 @@
+=== PACKET REPLAY (join replay, commit-anchored) at 492f57f ===
+IDENTICAL  node=symbol_table role=executor commit=492f57f51a62
+exit=0
+IDENTICAL  node=affected_symbols role=executor commit=492f57f51a62
+exit=0
+IDENTICAL  node=affected_symbols role=tester commit=492f57f51a62
+exit=0

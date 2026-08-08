@@ -1,6 +1,26 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-07, after report 005. Ruling bundle applied: **F20
+**Updated:** 2026-08-07, after report 006. **FOURTH STOP — 3t NOT
+dispatched.** Gate re-run on fresh packets (replay 3/3 IDENTICAL, index 28,
+219 tests): **executor:affected_symbols returned `insufficient`** — first
+ever; substance is D1/F18 (five of eight missing items = "the import graph
+is not exposed"), so the gate **independently corroborates D1-B Option B**.
+The verdict class moved because F20 closed: the delta now honestly says
+outstanding instead of `empty (validation-only)`, and the probe correctly
+refused to hand-roll binding extraction. **tester passed the label but its
+first request_mem is BLOCKING** — the surface never says `repo` is a git
+repo or that revs are git revisions (**F5 escalated to blocking**), so a
+blind tester cannot build one fixture. New: **F24** (guarantees don't name
+their observation channel, non-blocking), **F25** (seeded-vs-authored edit
+policy undefined — the packet ships a self-contradiction; blocking for
+3d-2), **F26** (gate script now archived; the "identical protocol" had been
+memory-dependent). **Flagged mechanism change: the fence is role-aware** —
+tester fences allow no tracked writes (executor fences byte-identical,
+locked by test); confirm or revert before 3t. **Four ratifier decisions
+pending: D1-B, Proposal A (F5, the only one 3t needs), Proposal B (F24),
+Proposal C (F25).** Then 3t re-gates → 3d-1 → 3d-2 → W05.
+
+**Previous:** 2026-08-07, after report 005. Ruling bundle applied: **F20
 closed** (structural authored lines presence-check — the D2 rule verbatim,
 locked demo test; affected_symbols honestly shows `delta: 1 outstanding`),
 **F21 closed** (tester trigger catalog, spec-content only), **F22 closed**

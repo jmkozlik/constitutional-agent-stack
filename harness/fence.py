@@ -29,7 +29,8 @@ FENCE_DIR = ".harness"
 
 
 def build_fence(
-    plan, code_index, resolved, node_id: str, *, repo=None, packet_hash=None
+    plan, code_index, resolved, node_id: str, *, repo=None, packet_hash=None,
+    role: str = "executor",
 ) -> dict:
     if node_id not in plan.nodes:
         raise join.JoinError(f"unknown node {node_id!r}")
@@ -37,12 +38,23 @@ def build_fence(
     dispatch = join.serialize_plan(
         plan, join.plan_checks(plan, code_index, resolved)
     )
+    # The fence is the ROLE's write scope, not the node's. For an executor
+    # that is the node's resolved writes (the ratified derivation, byte
+    # unchanged). A blind tester writes only its deliverables under
+    # .harness/out/, which the diff gate already exempts — so its tracked
+    # scope is empty, and the implementation it must never touch is walled
+    # by the same three layers as everything else.
+    allowed = (
+        {} if role == "tester"
+        else {entry: status for entry, status in delta["writes"]}
+    )
     return {
         "version": 1,
         "node": node_id,
+        "role": role,
         "plan": dispatch.plan_hash,
         "packet_hash": packet_hash,
-        "allowed": {entry: status for entry, status in delta["writes"]},
+        "allowed": allowed,
         # Sanctioned ephemeral space (v0.4.1): fixtures, notes, the handoff.
         # Inside the worktree so the fence sees it; under .harness so the
         # diff gate exempts it.
@@ -142,7 +154,7 @@ def _cmd_build(args) -> int:
     resolved = join.resolve_writes(plan, index)
     fence = build_fence(
         plan, index, resolved, args.node,
-        repo=args.repo, packet_hash=args.packet_hash,
+        repo=args.repo, packet_hash=args.packet_hash, role=args.role,
     )
     if args.target:
         path = write_fence(fence, args.target)
@@ -191,6 +203,8 @@ def main(argv=None) -> int:
     p_build.add_argument("--commit", default=None)
     p_build.add_argument("--worktree", action="store_true")
     p_build.add_argument("--packet-hash", default=None)
+    p_build.add_argument("--role", default="executor",
+                         choices=("executor", "tester"))
     p_build.add_argument("-t", "--target", default=None,
                          help="worktree to land .harness/fence.json in")
     p_build.set_defaults(func=_cmd_build)

@@ -49,6 +49,56 @@ def test_build_fence_to_create(tmp_path):
     assert built["allowed"]["core/unbuilt.py"] == "to_create"
 
 
+def test_tester_fence_allows_no_tracked_writes(tmp_path):
+    # A blind tester's deliverables are .harness/out/tests/ (already
+    # diff-gate exempt). Its write scope is NOT the node's implementation
+    # file — fencing it with the executor's scope would let the role that
+    # must never touch the implementation write it.
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    built = fence.build_fence(
+        plan, index, resolved, "base", repo=repo, role="tester"
+    )
+    assert built["allowed"] == {}
+    assert built["role"] == "tester"
+
+
+def test_executor_fence_unchanged_by_role_parameter(tmp_path):
+    # The ratified mechanism is untouched for every dispatch so far: the
+    # default and the explicit executor role produce identical fences
+    # apart from the recorded role label.
+    built, repo = fenced_fixture(tmp_path)
+    (tmp_path / "b").mkdir()
+    specs, repo2 = make_join_fixture(tmp_path / "b", SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo2, None)
+    resolved = join.resolve_writes(plan, index)
+    explicit = fence.build_fence(
+        plan, index, resolved, "base", repo=repo2,
+        packet_hash="abc123def456", role="executor",
+    )
+    assert built["allowed"] == explicit["allowed"]
+    assert {k: v for k, v in built.items() if k != "role"} == {
+        k: v for k, v in explicit.items() if k != "role"
+    }
+
+
+def test_diff_gate_catches_tester_writing_implementation(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    built = fence.build_fence(
+        plan, index, resolved, "base", repo=repo, role="tester"
+    )
+    fence.write_fence(built, repo)
+    assert fence.check_diff(repo) == []
+    (repo / "core" / "base.py").write_text("def ground() -> int:\n    return 99\n")
+    assert fence.check_diff(repo) == ["core/base.py"]
+
+
 def test_write_fence_lands_in_harness_dir(tmp_path):
     built, repo = fenced_fixture(tmp_path)
     path = fence.write_fence(built, repo)
