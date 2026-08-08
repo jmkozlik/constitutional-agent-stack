@@ -53,7 +53,14 @@ def main(argv=None) -> int:
         )
         return 2
 
-    api_key = os.environ.get(KEY_ENV, "").strip()
+    from lex import providers
+
+    try:
+        vendor, api_key = providers.select()
+    except providers.ProviderError as exc:
+        print(f"lex: {exc}", file=sys.stderr)
+        return 1
+    os.environ.setdefault(KEY_ENV, api_key if vendor == "anthropic" else "")
     if not api_key:
         print(
             f"lex: {KEY_ENV} is not set.\n"
@@ -71,7 +78,14 @@ def main(argv=None) -> int:
         return 2
 
     try:
-        client = agent.build_client(api_key)
+        provider = None
+        if vendor == "xai":
+            provider = providers.XAIProvider(api_key=api_key)
+            print(f"lex: provider xai, model {provider.model} "
+                  "(set LEX_MODEL to change it)", file=sys.stderr)
+            client = None
+        else:
+            client = agent.build_client(api_key)
     except agent.AgentError as exc:
         print(f"lex: {exc}", file=sys.stderr)
         return 2
@@ -84,9 +98,10 @@ def main(argv=None) -> int:
         client,
         system=system,
         repo=repo,
-        model=args.model,
+        model=(provider.model if provider else args.model),
         commit=_commit(repo),
         opening=opening,
+        provider=provider,
     )
     return 0
 

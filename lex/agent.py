@@ -54,7 +54,11 @@ class Session:
         max_tokens: int = MAX_TOKENS,
         effort: str = EFFORT,
         out=None,
+        provider=None,
     ):
+        # A provider, when given, owns the wire format. `client` stays for
+        # the ratified Anthropic path so nothing about it changes.
+        self.provider = provider
         self.client = client
         self.system = system
         self.repo = repo
@@ -87,8 +91,18 @@ class Session:
         }
 
     def _stream_turn(self):
-        """Stream one assistant turn, printing as it arrives, and return the
-        accumulated message."""
+        """Run one assistant turn and return the accumulated message.
+
+        With a non-streaming provider (xAI) the turn is printed when it
+        lands; the loop above cannot tell the difference, which is the
+        point of the adapter."""
+        if self.provider is not None:
+            from lex.tools import schemas as _schemas
+
+            return self.provider.turn(
+                messages=self.messages, system=self.system,
+                tools=_schemas(), out=self.out,
+            )
         thinking_open = False
         text_open = False
         thinking_parts: list = []

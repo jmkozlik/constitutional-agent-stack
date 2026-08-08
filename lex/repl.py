@@ -140,12 +140,13 @@ def expand(repo, line: str) -> str:
 
 
 def run(client, *, system: str, repo, model: str = agent.MODEL, commit: str = "",
-        opening: str = "", out=None) -> Path:
+        opening: str = "", out=None, provider=None) -> Path:
     """Drive the REPL until /quit or EOF, then file the session log."""
     out = out or sys.stdout
     log = transcript_mod.Transcript(repo, model=model, commit=commit)
     session = agent.Session(
-        client, system=system, repo=repo, transcript=log, model=model, out=out
+        client, system=system, repo=repo, transcript=log, model=model, out=out,
+        provider=provider,
     )
     from lex.tools import TOOL_NAMES
 
