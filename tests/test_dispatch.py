@@ -13,7 +13,7 @@ import sys
 import pytest
 
 from harness import dispatch, join
-from tests.conftest import PROJECT_ROOT, git
+from tests.conftest import PROJECT_ROOT, commit_all, git
 from tests.test_join import SPEC_SURFACED, SURFACED_FILES, make_join_fixture
 
 
@@ -202,3 +202,57 @@ def test_cli_prepare_emits_manifest_json(tmp_path):
         env={"PATH": __import__("os").environ["PATH"],
              "PYTHONPATH": str(PROJECT_ROOT)},
     )
+
+
+def test_f36_committed_handoff_survives_replay(tmp_path):
+    # F36 candidate 1: a handoff read at the pinned commit is part of what
+    # replay rebuilds from, so a packet carrying one stays reproducible.
+    # This is the property whose absence made two shipped packets DIVERGE.
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    (tmp_path / "identities").mkdir(exist_ok=True)
+    for r in ("executor", "tester"):
+        (tmp_path / "identities" / f"{r}.md").write_text(
+            (PROJECT_ROOT / "harness" / "identities" / f"{r}.md").read_text()
+        )
+    (repo / "handoff.md").write_text("Carried forward: the ruling you stopped on.\n")
+    sha = commit_all(repo, {}, "commit the handoff before building the packet")
+
+    from analyzer.indexer import build_index
+
+    plan = join.load_plan(specs)
+    index = build_index(repo, sha)
+    resolved = join.resolve_writes(plan, index)
+    packet = join.assemble_packet(
+        plan, index, resolved, "base", "executor",
+        identities_dir=tmp_path / "identities", repo=repo,
+        handoff_path="handoff.md",
+    )
+    assert "the ruling you stopped on" in packet
+    # rebuilt from the commit alone — no scratch file in sight
+    again = join.assemble_packet(
+        plan, index, resolved, "base", "executor",
+        identities_dir=tmp_path / "identities", repo=repo,
+        handoff_path="handoff.md",
+    )
+    assert packet == again
+
+
+def test_f36_uncommitted_handoff_path_is_refused(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    (tmp_path / "identities").mkdir(exist_ok=True)
+    (tmp_path / "identities" / "executor.md").write_text(
+        (PROJECT_ROOT / "harness" / "identities" / "executor.md").read_text()
+    )
+    from analyzer.indexer import build_index
+
+    plan = join.load_plan(specs)
+    sha = git(repo, "rev-parse", "HEAD")
+    index = build_index(repo, sha)
+    resolved = join.resolve_writes(plan, index)
+    with pytest.raises(join.JoinError) as err:
+        join.assemble_packet(
+            plan, index, resolved, "base", "executor",
+            identities_dir=tmp_path / "identities", repo=repo,
+            handoff_path="never-committed.md",
+        )
+    assert "F36" in str(err.value)

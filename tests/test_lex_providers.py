@@ -129,3 +129,24 @@ def test_the_law_is_provider_independent(monkeypatch):
     result = tools.run_tool("dispatch_run", {"action": "prepare", "node": "gitio"},
                             repo=".")
     assert result["refused"] is True and calls == []
+
+
+def test_preflight_reports_a_bad_model_clearly(monkeypatch):
+    provider_errors = providers.ProviderError("xai: HTTP 404 — model not found")
+
+    def boom(self, body):
+        raise provider_errors
+
+    monkeypatch.setattr(providers.XAIProvider, "_post", boom)
+    result = providers.preflight("xai", "k", model="grok-nope")
+    assert result["ok"] is False
+    assert "404" in result["error"] and result["model"] == "grok-nope"
+
+
+def test_preflight_reports_success(monkeypatch):
+    monkeypatch.setattr(
+        providers.XAIProvider, "_post",
+        lambda self, body: {"choices": [{"message": {"content": "ok"}}]},
+    )
+    result = providers.preflight("xai", "k", model="grok-4")
+    assert result["ok"] is True and result["reply"] == "ok"

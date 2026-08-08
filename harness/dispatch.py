@@ -60,6 +60,17 @@ class DispatchError(Exception):
     pass
 
 
+def _source_of_committed(repo, commit, rel_path):
+    from analyzer import gitio
+
+    try:
+        return gitio.read_files(repo, commit, [rel_path])[rel_path].decode(
+            errors="replace"
+        )
+    except (GitError, KeyError):
+        return None
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -75,6 +86,7 @@ def prepare(
     root=None,
     interpreter: str | None = None,
     handoff=None,
+    handoff_path=None,
 ) -> dict:
     """Cut a fenced worktree at `commit`, compile and deliver the packet,
     and return the manifest the operator needs to spawn against."""
@@ -100,6 +112,7 @@ def prepare(
     packet = join.assemble_packet(
         plan, index, resolved, node, role,
         identities_dir=identities, repo=repo, handoff=handoff_text,
+        handoff_path=handoff_path,
     )
     trailer = packet.rstrip("\n").rsplit("\n", 1)[-1]
     packet_hash = dict(
@@ -129,6 +142,13 @@ def prepare(
     fence_path = fence_mod.write_fence(built, worktree)
     (worktree / ".harness" / "out").mkdir(parents=True, exist_ok=True)
     (worktree / ".harness" / "packet.md").write_text(packet, encoding="utf-8")
+    if handoff_text or handoff_path:
+        # The input to a dispatch is evidence: keep it where harvest can see
+        # it, so a future reader has what the executor was actually handed.
+        (worktree / ".harness" / "handoff.md").write_text(
+            handoff_text or _source_of_committed(repo, sha, handoff_path) or "",
+            encoding="utf-8",
+        )
     fence_mod.apply_fence(built, worktree)
 
     wall = canary(worktree)
@@ -156,6 +176,9 @@ def prepare(
             join.compute_delta(plan, index, resolved, node, repo=repo)
         ),
         "interpreter": interpreter,
+        # Recorded so replay knows whether this packet is rebuildable.
+        "handoff_path": handoff_path,
+        "handoff_replayable": bool(handoff_path) or not handoff,
         "wall": wall,
         "prompt": PROMPT_TEMPLATE.format(
             worktree=worktree,
@@ -277,6 +300,9 @@ def harvest(ctx, *, evidence=None, started=None, finished=None) -> dict:
     # F29 telemetry: read events live at .harness/ (neither out/ nor
     # scratch/), so they must be folded explicitly or they are lost at
     # teardown along with the only record of what was read.
+    handoff_src = worktree / ".harness" / "handoff.md"
+    if handoff_src.exists():
+        shutil.copy2(handoff_src, evidence / "handoff.md")
     events_path = worktree / ".harness" / "read_events.jsonl"
     reads_out_of_packet = []
     if events_path.exists():
@@ -347,6 +373,7 @@ def _cmd_prepare(args) -> int:
         args.node, role=args.role, repo=args.repo, specs=args.specs,
         commit=args.commit, dispatch_id=args.id, root=args.root,
         interpreter=args.interpreter, handoff=args.handoff,
+        handoff_path=args.handoff_path,
     )
     sys.stdout.write(
         json.dumps({**manifest, "worktree": str(manifest["worktree"])},
@@ -392,7 +419,11 @@ def main(argv=None) -> int:
     p.add_argument("--root", default=None)
     p.add_argument("--interpreter", default=None)
     p.add_argument("--handoff", default=None,
-                   help="file whose text lands in the packet's handoff section")
+                   help="raw file whose text lands in the handoff section "
+                        "(NOT replayable — see F36; prefer --handoff-path)")
+    p.add_argument("--handoff-path", default=None,
+                   help="repo-relative path, read AT THE PINNED COMMIT, so the "
+                        "packet stays reproducible by replay")
     p.set_defaults(func=_cmd_prepare)
 
     h = sub.add_parser("harvest", help="collect artifacts, run the gate, emit the record")

@@ -921,6 +921,7 @@ def assemble_packet(
     identities_dir,
     repo=None,
     handoff: str | None = None,
+    handoff_path: str | None = None,
 ) -> str:
     if node_id not in plan.nodes:
         raise JoinError(f"unknown node {node_id!r}")
@@ -1113,6 +1114,19 @@ def assemble_packet(
     # The channel ARCHITECTURE (2) specified and nothing ever populated:
     # a resumed dispatch reads its predecessor's state and the answers to
     # the questions it stopped on, instead of rediscovering both.
+    # F36 (candidate 1): a handoff read from a repo-relative path AT THE
+    # PINNED COMMIT is part of what replay rebuilds from, so a packet
+    # carrying one stays reproducible. A handoff passed as raw text is not,
+    # and is what broke the guarantee in the first place.
+    if handoff_path:
+        handoff = _source_of(repo, code_index["commit"], handoff_path)
+        if handoff is None:
+            raise JoinError(
+                f"handoff {handoff_path!r} is not readable at "
+                f"{code_index['commit'] or 'the worktree'} — a handoff must be "
+                "committed before the packet is built, or the packet cannot "
+                "be replayed (F36)"
+            )
     lines += (handoff.rstrip().splitlines() if handoff else
               ["(none for this dispatch)"])
     lines.append("")

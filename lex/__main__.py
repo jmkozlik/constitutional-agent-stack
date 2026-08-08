@@ -37,6 +37,10 @@ def main(argv=None) -> int:
         prog="lex", description="The interactive interface to the harness."
     )
     parser.add_argument(
+        "--preflight", action="store_true",
+        help="check the API key and model with one cheap call, then exit",
+    )
+    parser.add_argument(
         "opening", nargs="*",
         help="opening verb, e.g. 'plan' or 'run 3d-1' (without the slash)",
     )
@@ -54,6 +58,17 @@ def main(argv=None) -> int:
         return 2
 
     from lex import providers
+
+    if getattr(args, "preflight", False):
+        try:
+            vendor, api_key = providers.select()
+        except providers.ProviderError as exc:
+            print(f"lex: {exc}", file=sys.stderr)
+            return 1
+        result = providers.preflight(vendor, api_key, model=os.environ.get("LEX_MODEL"))
+        for key, value in result.items():
+            print(f"{key}: {value}")
+        return 0 if result.get("ok", True) else 1
 
     try:
         vendor, api_key = providers.select()

@@ -238,6 +238,32 @@ class XAIProvider:
         return Message(content=blocks or [TextBlock("")], stop_reason=stop)
 
 
+def preflight(vendor: str, api_key: str, model: str | None = None) -> dict:
+    """One cheap call that answers: is the key good, is the model name real.
+
+    The xAI model id here is a default I chose, not one I verified against
+    the vendor's catalogue. Preflight turns that guess into a checked fact
+    before a session depends on it.
+    """
+    if vendor != "xai":
+        return {"vendor": vendor, "checked": False,
+                "note": "preflight implemented for xai only; the anthropic "
+                        "path is the ratified default and fails loudly on its own"}
+    provider = XAIProvider(api_key=api_key, model=model or DEFAULT_XAI_MODEL)
+    try:
+        payload = provider._post({
+            "model": provider.model,
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "reply with the word ok"}],
+        })
+    except ProviderError as exc:
+        return {"vendor": "xai", "model": provider.model, "ok": False,
+                "error": str(exc)}
+    reply = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content")
+    return {"vendor": "xai", "model": provider.model, "ok": True,
+            "reply": (reply or "").strip()[:80]}
+
+
 def select(model: str | None = None):
     """(name, provider_factory_args) for whichever vendor is configured.
 
