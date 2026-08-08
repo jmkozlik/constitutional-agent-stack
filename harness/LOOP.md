@@ -1,6 +1,24 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 014. **MAIDEN VOYAGE — PLUMBING +
+**Updated:** 2026-08-08, after report 015. **MAIDEN VOYAGE SAILED — Grok
+plumbing + cargo leg, clean.** lex v1 ran on `grok-4` (preflight-verified),
+pulled `/evals`, reported it, filed its transcript. 1 tool call, 0
+ratification prompts raised or refused, no breakage. **CONDUCT NOT
+ASSESSED — explicitly out of scope, defers to an Anthropic-keyed
+session.** Every figure lex quoted was checked against the tool (40%
+in-dispatch, 48 files, plan hash, replay tally) — no drift. **The F36
+citation guard held end to end**: the qualifier printed AND lex carried
+it into its own prose rather than paraphrasing it away. Key was found on
+the machine at `~/projects/gooners_gambit/.env`, loaded without being
+printed; the session log carries no credential (checked). Note: a user
+doc prefers `grok-4.1-fast` — that is `LEX_MODEL` and nothing else.
+**Caveat recorded rather than glossed: one read-only tool call is a
+shallow test** — multi-round loops, a firing gate, REQUEST_MEM
+round-trips and any mutating action are untouched. **F37 NEW**: lex has
+no lever for the three-probe gate (it reported the gap itself). 368
+tests.
+
+**Previous:** 2026-08-08, after report 014. **MAIDEN VOYAGE — PLUMBING +
 CARGO LEG, ON GROK — STILL NOT SAILED: `XAI_API_KEY` is not set in the
 environment.** Ruled: the voyage sails on Grok, labelled as the plumbing
 + cargo leg; **the CONDUCT ASSESSMENT IS EXPLICITLY OUT OF SCOPE for this
