@@ -74,6 +74,7 @@ def prepare(
     dispatch_id: str | None = None,
     root=None,
     interpreter: str | None = None,
+    handoff=None,
 ) -> dict:
     """Cut a fenced worktree at `commit`, compile and deliver the packet,
     and return the manifest the operator needs to spawn against."""
@@ -93,9 +94,12 @@ def prepare(
     index = build_index(repo, sha)
     resolved = join.resolve_writes(plan, index)
 
+    handoff_text = None
+    if handoff:
+        handoff_text = Path(handoff).read_text(encoding="utf-8")
     packet = join.assemble_packet(
         plan, index, resolved, node, role,
-        identities_dir=identities, repo=repo,
+        identities_dir=identities, repo=repo, handoff=handoff_text,
     )
     trailer = packet.rstrip("\n").rsplit("\n", 1)[-1]
     packet_hash = dict(
@@ -342,7 +346,7 @@ def _cmd_prepare(args) -> int:
     manifest = prepare(
         args.node, role=args.role, repo=args.repo, specs=args.specs,
         commit=args.commit, dispatch_id=args.id, root=args.root,
-        interpreter=args.interpreter,
+        interpreter=args.interpreter, handoff=args.handoff,
     )
     sys.stdout.write(
         json.dumps({**manifest, "worktree": str(manifest["worktree"])},
@@ -387,6 +391,8 @@ def main(argv=None) -> int:
     p.add_argument("--id", default=None)
     p.add_argument("--root", default=None)
     p.add_argument("--interpreter", default=None)
+    p.add_argument("--handoff", default=None,
+                   help="file whose text lands in the packet's handoff section")
     p.set_defaults(func=_cmd_prepare)
 
     h = sub.add_parser("harvest", help="collect artifacts, run the gate, emit the record")

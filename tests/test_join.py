@@ -1051,6 +1051,19 @@ def test_replay_still_diverges_on_a_real_mismatch(tmp_path):
 # --- v0.5 bundle: observed_through (B) + seeded-growth policy (C) ------------
 
 
+def test_tester_packet_surface_is_contained_in_its_own_node():
+    # Ruled standing gate line: every tester packet's type and callable
+    # lines are a subset of its own node's surface. F33's test covered the
+    # instance (a prose line matching everything); this covers the class.
+    plan = join.load_plan(PROJECT_ROOT / "harness" / "specs")
+    index = build_index(PROJECT_ROOT, None)
+    resolved = join.resolve_writes(plan, index)
+    violations = join.tester_containment(plan, index, resolved,
+                                         identities_dir=PROJECT_ROOT / "harness" / "identities",
+                                         repo=PROJECT_ROOT)
+    assert violations == []
+
+
 def test_prose_type_line_does_not_leak_into_other_nodes_packets():
     # A prose types line has no "(", so terminal extraction produced "" and
     # the \b\b word-boundary guard matched every packet — handing gitio's

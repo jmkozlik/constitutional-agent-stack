@@ -730,7 +730,7 @@ def delta_summary(delta: dict) -> str:
 # --- packet assembly --------------------------------------------------------
 
 
-def _render_surface(plan: Plan, node_id: str) -> list:
+def _render_surface(plan: Plan, node_id: str, role: str = "executor") -> list:
     """The three surface subsections, with foreign types resolved from
     their owning node's surface at packet build (I5): any other node's
     type whose terminal name appears in this node's entries rides along,
@@ -741,7 +741,10 @@ def _render_surface(plan: Plan, node_id: str) -> list:
         return []
     own_text = " ".join(callables + types)
     foreign = []
-    for other in sorted(plan.nodes):
+    # Ruled containment: a tester packet's type and callable lines are a
+    # subset of its OWN node's surface. Foreign ride-along (I5) is an
+    # executor affordance; for the blind role it is a containment hole.
+    for other in [] if role == "tester" else sorted(plan.nodes):
         if other == node_id:
             continue
         _, other_types, _ = _surface_sections(plan.nodes[other])
@@ -829,6 +832,42 @@ def _protocol_section(role: str) -> list:
     )
 
 
+def tester_containment(plan: Plan, code_index: dict, resolved: dict, *,
+                       identities_dir, repo=None) -> list:
+    """Ruled standing gate line: every tester packet's type and callable
+    lines are a subset of that node's OWN surface. Returns violations —
+    (node, offending line) — so a gate run asserts the class, not just the
+    instance F33 fixed."""
+    violations = []
+    for node_id in sorted(plan.nodes):
+        node = plan.nodes[node_id]
+        callables, types, _ = _surface_sections(node)
+        own = {entry.strip() for entry in callables + types}
+        packet = assemble_packet(
+            plan, code_index, resolved, node_id, "tester",
+            identities_dir=identities_dir, repo=repo,
+        )
+        try:
+            block = packet.split("surface (the only thing your tests may invoke):", 1)[1]
+        except IndexError:
+            continue
+        block = block.split("guarantees to verify", 1)[0]
+        section = None
+        for raw in block.splitlines():
+            line = raw.strip()
+            if line in ("callables:", "types:", "errors:"):
+                section = line[:-1]
+                continue
+            if not line.startswith("- ") or section == "errors":
+                continue
+            entry = line[2:].strip()
+            if entry == "(none declared)":
+                continue
+            if entry not in own:
+                violations.append((node_id, entry))
+    return violations
+
+
 def _identity_section(role: str, identities_dir: Path) -> list:
     body = (Path(identities_dir) / f"{role}.md").read_text().rstrip()
     return [
@@ -881,6 +920,7 @@ def assemble_packet(
     *,
     identities_dir,
     repo=None,
+    handoff: str | None = None,
 ) -> str:
     if node_id not in plan.nodes:
         raise JoinError(f"unknown node {node_id!r}")
@@ -903,7 +943,7 @@ def assemble_packet(
     # against the returned value or against rendered text.
     if plan.meta.get("observed_through"):
         lines.append(f"observed_through: {plan.meta['observed_through']}")
-    surface_lines = _render_surface(plan, node_id)
+    surface_lines = _render_surface(plan, node_id, role)
     if role == "tester":
         # P6/JA7 + v0.2: the tester's packet is the spec node's guarantees
         # plus the declared surface — the one sanctioned seam through which
@@ -1069,9 +1109,13 @@ def assemble_packet(
     lines += [
         "## State — handoff  [provenance: agent-authored, claim not fact]",
         "",
-        "(none for this dispatch)",
-        "",
     ]
+    # The channel ARCHITECTURE (2) specified and nothing ever populated:
+    # a resumed dispatch reads its predecessor's state and the answers to
+    # the questions it stopped on, instead of rediscovering both.
+    lines += (handoff.rstrip().splitlines() if handoff else
+              ["(none for this dispatch)"])
+    lines.append("")
     return _finish_packet(lines, dispatch_hash, node_id, role, ref)
 
 

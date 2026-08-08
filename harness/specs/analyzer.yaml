@@ -80,6 +80,19 @@
       - "analyzer.indexer.import_origins: matches entries on the module field —
          the dotted defining module — and answers from the index's imports
          table, never by recomputation.  [authored]"
+      - "analyzer.indexer.imports: an import whose bound names cannot be
+         resolved but whose source module is stated (star_import) emits kind
+         unresolved with origin null and module = the source module. An import
+         whose target itself cannot be resolved (unresolved_import_target)
+         emits kind unresolved with origin and module null. The binding is
+         recorded, never invented — and a stated source module is a fact, not
+         an invention.  [authored]"
+      - "analyzer.indexer.imports: every indexed file gets an entry list, empty
+         when it imports nothing; a file that fails to parse gets an empty list
+         alongside its parse_error unresolved site.  [authored]"
+      - "analyzer.indexer.import_origins: returns the sorted, deduplicated
+         repo-relative files importing that module — empty for an unknown
+         module and for an index built before the imports key existed.  [authored]"
     errors:
       - "analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]"
   done_when:
@@ -90,6 +103,9 @@
     - "A bare module import that is never called yields a module-kind imports
        entry whose origin and module are both the imported module, so an
        imported-but-uncalled binding leaves a trace in the index."
+    - "A star-importing file lands in the source module's importer set — its
+       imports entry carries kind unresolved with module set to the source
+       module, so import_origins names it."
 
 - id: reference_map
   one_liner: Records every site that references each symbol, with the arguments as
