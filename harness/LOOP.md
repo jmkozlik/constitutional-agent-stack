@@ -1,6 +1,38 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 015. **MAIDEN VOYAGE SAILED — Grok
+**Updated:** 2026-08-08, after report 016. **THE GATE IS A LEVER** —
+`python -m harness.gate`, ported from gate.js. Instrument continuity is
+enforced as BYTES: tests pin the preamble, the three probes, each
+`extra`, the verdict enum, and assert the built prompt is byte-identical
+to the archive. That test caught me appending a JSON instruction into the
+prompt (gate.js constrains shape out-of-band) — F26 recurring, fixed;
+shape now lives in a system message + `response_format`. **Parity: 3/3
+with the model held fixed, 0/3 across models.** The naive gate.js-vs-port
+run varies instrument AND model and is uninterpretable; the de-confound
+(port's own prompts judged by Claude) is what proves the port. Evidence:
+`docs/evidence/gate-port/`. **F38 NEW, non-blocking**: Grok returned
+`sufficient` with ZERO misses on all three probes where Claude returned
+4-6 — a gate that never reports a gap is not measuring. Gate results are
+comparable across the PORT boundary, NOT across a model boundary; the
+model is part of the instrument. Bears on stop-routing, three candidate
+readings in 016 §2, **none adopted**. **F36 LANDED before the 13th as
+ordered**: raw `--handoff` now raises with F36 named; citability is
+per-packet, read from the packet's own handoff section — `2 DIVERGED, 2
+IDENTICAL`, only 3d-1r/3d-2 uncitable. The blanket flag had been
+suppressing 3b's and 3d-1's TRUE identical verdicts: over-claiming
+uncertainty is the same error as under-claiming it. **Second leg sailed**
+— /plan + /status, 5 turns, grok-4, plumbing-labelled; lex caught a
+48-vs-52 file discrepancy unprompted and refused to adopt a reading on
+F38, recommending a ratification prompt instead. **Conduct datapoint
+logged, not acted on**: lex said "F37 is closed by the existence of the
+command" — closure is the ratifier's call. **lex reports its own cost**:
+`5 turns, in 15,112, out 2,163, cache read 52,992`. Vendors disagree on
+what a prompt token is (Anthropic excludes cache reads, xAI includes
+them) — normalised, else this session reads as 68k not 15k. No price
+table: an invented cost is worse than no cost. CONDUCT STILL NOT ASSESSED
+— defers to an Anthropic-keyed session. 388 tests.
+
+**Previous:** 2026-08-08, after report 015. **MAIDEN VOYAGE SAILED — Grok
 plumbing + cargo leg, clean.** lex v1 ran on `grok-4` (preflight-verified),
 pulled `/evals`, reported it, filed its transcript. 1 tool call, 0
 ratification prompts raised or refused, no breakage. **CONDUCT NOT
