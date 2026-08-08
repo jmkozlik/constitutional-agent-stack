@@ -13,8 +13,8 @@ from analyzer.modpath import module_path
 from analyzer.refs import (
     ImportTable,
     Resolver,
-    _scope_stmts,
     collect_references,
+    scope_statements,
 )
 from analyzer.symbols import extract_from_tree
 
@@ -81,7 +81,7 @@ def _import_entries(
     the reference pass rather than re-decided here.
     """
     entries: list[dict] = []
-    for stmt in _scope_stmts(tree.body):
+    for stmt in scope_statements(tree.body):
         if isinstance(stmt, ast.Import):
             for alias in stmt.names:
                 # `import a.b` binds `a` but names the module `a.b`; the

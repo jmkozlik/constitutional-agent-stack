@@ -25,6 +25,18 @@ _MAX_CHASE_DEPTH = 10
 # --- statement traversal that stays at one scope level ----------------------
 
 
+def scope_statements(body):
+    """The statements reachable at one scope level — the same walk the
+    import tables are built from.
+
+    Public so a consumer can guarantee it sees exactly the statement set
+    `ImportTable.from_module` saw. `index_assembly` needed this and reached
+    for the private name; the ruling is that the intent was right and the
+    channel was not, so the channel exists now.
+    """
+    return _scope_stmts(body)
+
+
 def _scope_stmts(stmts):
     """Yield statements reachable at the same scope level: descends through
     control flow (if/try/for/while/with) but never into defs or classes."""

@@ -73,10 +73,16 @@
          {file - [{name - str, kind - module | symbol, origin - dotted resolved
          terminal, being the symbol path for name bindings and the module path
          for module bindings, module - dotted defining module, equal to origin
-         for module-kind entries}]} — taken from the Resolver's output at build
-         time, never recomputed downstream. Files emit sorted by path and each
+         for module-kind entries}]}. Files emit sorted by path and each
          file's entries emit sorted by (name, origin), so byte-identity
          survives the new key.  [authored]"
+      - "analyzer.indexer.imports: bindings — the bound name and the
+         module the statement names — are transcribed from the import
+         statements themselves; every resolution (relative-import
+         bases, module-vs-symbol decisions, re-export chases,
+         unresolvable-target verdicts) is taken from the reference
+         layer at build time and never recomputed downstream.
+         Transcribing stated syntax is not recomputation.  [authored]"
       - "analyzer.indexer.import_origins: matches entries on the module field —
          the dotted defining module — and answers from the index's imports
          table, never by recomputation.  [authored]"
@@ -86,7 +92,10 @@
          whose target itself cannot be resolved (unresolved_import_target)
          emits kind unresolved with origin and module null. The binding is
          recorded, never invented — and a stated source module is a fact, not
-         an invention.  [authored]"
+         an invention. An import of a name that resolves to no indexed
+         definition — a constant, or anything out-of-repo — emits kind
+         unresolved with origin null and module = the stated source
+         module.  [authored]"
       - "analyzer.indexer.imports: every indexed file gets an entry list, empty
          when it imports nothing; a file that fails to parse gets an empty list
          alongside its parse_error unresolved site.  [authored]"
@@ -116,6 +125,7 @@
     callables:
       - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]  [seeded]"
       - "analyzer.refs.ImportTable.from_module(cls, tree: ast.Module, module_path: str, *, is_package: bool = False) -> 'ImportTable'  [seeded]"
+      - "analyzer.refs.scope_statements(body)  [seeded]"
     types:
       - "analyzer.refs.Resolver(symbols: dict[str, list[dict]], tables: dict[str, 'ImportTable'])  [seeded]"
       - "analyzer.refs.ImportTable(module_path: str, *, is_package: bool = False)  [seeded]"
