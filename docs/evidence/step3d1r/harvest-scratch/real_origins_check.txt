@@ -1,0 +1,10 @@
+worktree entry for the private import I added: [{'name': '_scope_stmts', 'kind': 'symbol', 'origin': 'analyzer.refs._scope_stmts', 'module': 'analyzer.refs'}]
+
+import_origins(analyzer.refs) =
+    .harness/scratch/probe_before.py
+    analyzer/indexer.py
+    tests/test_refs.py
+    tests/test_unresolved.py
+
+import_origins(analyzer.modpath) = ['analyzer/indexer.py', 'analyzer/symbols.py', 'tests/test_modpath.py', 'tests/test_refs.py', 'tests/test_unresolved.py']
+import_origins(unknown)         = []

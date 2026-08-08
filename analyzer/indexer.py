@@ -10,7 +10,12 @@ from pathlib import Path
 
 from analyzer import gitio
 from analyzer.modpath import module_path
-from analyzer.refs import ImportTable, Resolver, collect_references
+from analyzer.refs import (
+    ImportTable,
+    Resolver,
+    _scope_stmts,
+    collect_references,
+)
 from analyzer.symbols import extract_from_tree
 
 _SKIP_DIRS = {"__pycache__", "venv", ".venv", "node_modules"}
@@ -42,6 +47,95 @@ def _worktree_files(root: Path) -> list[str]:
     return sorted(files)
 
 
+def _module_entry(name: str, module: str) -> dict:
+    return {"name": name, "kind": "module", "origin": module, "module": module}
+
+
+def _symbol_entry(name: str, origin: str, module: str) -> dict:
+    return {"name": name, "kind": "symbol", "origin": origin, "module": module}
+
+
+def _unresolved_entry(name: str, module: str | None) -> dict:
+    return {"name": name, "kind": "unresolved", "origin": None, "module": module}
+
+
+def _defining_modules(resolver: Resolver, path: str) -> list[str]:
+    """Dotted modules defining an indexed symbol path, from the resolver's own
+    symbol table — one per file a record of that path was extracted from."""
+    return sorted({module_path(r["file"]) for r in resolver.symbols.get(path, ())})
+
+
+def _import_entries(
+    tree: ast.Module,
+    table: ImportTable,
+    resolver: Resolver,
+    flagged: set[tuple[int, str]],
+) -> list[dict]:
+    """One entry per name an import statement binds in this file.
+
+    The statement supplies the binding (name, and the module it names);
+    the resolver supplies the origin. Nothing here re-resolves: `base_of`
+    resolves relative levels and `resolve_dotted` chases re-exports, both
+    in refs. `flagged` carries refs' own unresolved verdicts for this file,
+    keyed (line, reason), so the unresolved_import_target case is read off
+    the reference pass rather than re-decided here.
+    """
+    entries: list[dict] = []
+    for stmt in _scope_stmts(tree.body):
+        if isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                # `import a.b` binds `a` but names the module `a.b`; the
+                # binding keeps the name, the entry keeps the module, so an
+                # imported-but-uncalled submodule still leaves a trace.
+                bound = alias.asname or alias.name.split(".")[0]
+                entries.append(_module_entry(bound, alias.name))
+        elif isinstance(stmt, ast.ImportFrom):
+            base = table.base_of(stmt)
+            if any(alias.name == "*" for alias in stmt.names):
+                # The bound names are unknowable, but the source module is
+                # stated — a fact, so it is kept.
+                entries.append(_unresolved_entry("*", base or None))
+                continue
+            # refs flags a target unresolvable only when the source module
+            # itself star-imports, which is what makes the stated base
+            # untrustworthy as the definer; then both fields go null.
+            poisoned = (stmt.lineno, "unresolved_import_target") in flagged
+            for alias in stmt.names:
+                bound = alias.asname or alias.name
+                target = f"{base}.{alias.name}" if base else alias.name
+                if resolver.is_module(target):
+                    entries.append(_module_entry(bound, target))
+                    continue
+                hits = [
+                    (path, module)
+                    for path, _note in resolver.resolve_dotted(target)
+                    for module in _defining_modules(resolver, path)
+                ]
+                if hits:
+                    entries.extend(
+                        _symbol_entry(bound, path, module) for path, module in hits
+                    )
+                elif poisoned:
+                    entries.append(_unresolved_entry(bound, None))
+                else:
+                    entries.append(_unresolved_entry(bound, base or None))
+    return entries
+
+
+def _sorted_entries(entries: list[dict]) -> list[dict]:
+    """Deduplicated, sorted by (name, origin) — the remaining fields break
+    ties so the order is total and byte-identity survives."""
+    unique = {
+        (e["name"], e["origin"], e["kind"], e["module"]): e for e in entries
+    }
+    return [
+        unique[key]
+        for key in sorted(
+            unique, key=lambda k: (k[0], k[1] or "", k[2], k[3] or "")
+        )
+    ]
+
+
 def build_index(repo: str | Path, commit: str | None) -> dict:
     """Index a repo (working tree, or a commit's blobs when `commit` is set).
 
@@ -67,6 +161,14 @@ def build_index(repo: str | Path, commit: str | None) -> dict:
                in_symbol, reason (subscript_call | getattr_call |
                attribute_of_call | star_import | dynamic_attribute |
                parse_error | unresolved_import_target), expression.
+      imports: {file: [binding]} — every indexed file, empty list when it
+               imports nothing or failed to parse. A binding is name (as
+               bound in this file), kind (module | symbol | unresolved),
+               origin (dotted resolved terminal: the symbol path for a name
+               binding, the module path for a module binding, null when
+               unresolvable) and module (dotted defining module, equal to
+               origin for module-kind entries). Files sorted by path,
+               entries by (name, origin).
     """
     root = Path(repo)
     read_failures: list[tuple[str, str]] = []
@@ -187,17 +289,47 @@ def build_index(repo: str | Path, commit: str | None) -> dict:
     unresolved.sort(
         key=lambda u: (u["file"], u["line"], u["reason"], u["expression"])
     )
+    flagged_by_file: dict[str, set[tuple[int, str]]] = defaultdict(set)
+    for site in unresolved:
+        flagged_by_file[site["file"]].add((site["line"], site["reason"]))
+    imports = {}
+    for rel in sorted(files):
+        if rel not in trees:
+            imports[rel] = []  # never parsed; its parse_error site stands
+            continue
+        tree, mod = trees[rel]
+        imports[rel] = _sorted_entries(
+            _import_entries(tree, tables[mod], resolver, flagged_by_file[rel])
+        )
+
     return {
         "version": 1,
         "commit": sha,
         "files": list(files),
         "symbols": symbols_out,
         "unresolved": unresolved,
+        "imports": imports,
     }
 
 
 def serialize(index: dict) -> str:
     return json.dumps(index, indent=2, sort_keys=True) + "\n"
+
+
+def import_origins(index: dict, module: str) -> list[str]:
+    """Repo-relative files importing `module`, sorted and deduplicated.
+
+    Answers from the index's imports table by matching the `module` field —
+    the dotted defining module — so a name imported through a re-export
+    facade counts against the module that actually defines it. Empty for a
+    module nothing imports and for an index built before the key existed.
+    """
+    imports = index.get("imports") or {}
+    return sorted(
+        file
+        for file, entries in imports.items()
+        if any(entry.get("module") == module for entry in entries)
+    )
 
 
 class IndexLoadError(Exception):

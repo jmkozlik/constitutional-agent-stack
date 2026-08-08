@@ -1,0 +1,1 @@
+from pkg.star_src import hidden_thing

@@ -1,0 +1,5 @@
+from pkg.impl import *
+
+
+def visible():
+    return 3

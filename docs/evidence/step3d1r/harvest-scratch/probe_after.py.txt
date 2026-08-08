@@ -1,0 +1,154 @@
+"""Post-change probe: every done_when bullet, observed through the surface.
+
+Exit 0 iff all checks pass. Each check prints PASS/FAIL with the value it
+saw, so the output is the evidence, not a claim about it.
+"""
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from analyzer.indexer import build_index, import_origins, serialize
+
+repo = Path(sys.argv[1])
+failures = []
+
+
+def check(label, got, want):
+    ok = got == want
+    print(f"[{'PASS' if ok else 'FAIL'}] {label}")
+    print(f"        want: {want!r}")
+    print(f"        got:  {got!r}")
+    if not ok:
+        failures.append(label)
+
+
+index = build_index(repo, None)
+
+print("=" * 72)
+print("BULLET 1 — indexing the same commit twice produces byte identical output")
+print("=" * 72)
+# The commit path, twice, byte-for-byte through serialize().
+a = serialize(build_index(repo, "HEAD"))
+b = serialize(build_index(repo, "HEAD"))
+check("commit index serializes identically twice", a == b, True)
+check("the imports key is actually present in that output",
+      '"imports"' in a, True)
+# and the worktree path, twice
+w1, w2 = serialize(build_index(repo, None)), serialize(build_index(repo, None))
+check("worktree index serializes identically twice", w1 == w2, True)
+
+print()
+print("=" * 72)
+print("BULLET 2 — every symbol path maps to >=1 record with location+signature")
+print("=" * 72)
+paths = {s["path"] for s in index["symbols"]}
+bad = [
+    s["path"]
+    for s in index["symbols"]
+    if not s.get("file") or s.get("start_line") is None or "signature" not in s
+]
+check("symbol paths present", sorted(paths) != [], True)
+check("records missing file/start_line/signature", bad, [])
+
+print()
+print("=" * 72)
+print("BULLET 3 — import bindings with resolved origins, re-export chains "
+      "included, and import_origins answers from them")
+print("=" * 72)
+imports = index["imports"]
+print("full imports table:")
+print(json.dumps(imports, indent=2, sort_keys=True))
+print()
+# app/facade.py does `from pkg import helper`; helper is defined in
+# pkg/impl.py and only re-exported by pkg/__init__.py.
+check("re-export chain resolved to the defining symbol",
+      imports["app/facade.py"],
+      [{"name": "helper", "kind": "symbol",
+        "origin": "pkg.impl.helper", "module": "pkg.impl"}])
+check("direct symbol import resolved",
+      imports["app/direct.py"],
+      [{"name": "widget", "kind": "symbol",
+        "origin": "pkg.impl.widget", "module": "pkg.impl"}])
+check("import_origins names the re-export importer too",
+      import_origins(index, "pkg.impl"),
+      ["app/alias.py", "app/bare.py", "app/constant.py", "app/direct.py",
+       "app/facade.py", "app/submod.py", "pkg/__init__.py",
+       "pkg/star_src.py"])
+check("import_origins is empty for an unknown module",
+      import_origins(index, "no.such.module"), [])
+check("import_origins is empty for a pre-imports index",
+      import_origins({"symbols": [], "unresolved": []}, "pkg.impl"), [])
+
+print()
+print("=" * 72)
+print("BULLET 4 — bare uncalled `import pkg.impl` -> module-kind entry, "
+      "origin and module both the imported module")
+print("=" * 72)
+check("app/bare.py entry",
+      imports["app/bare.py"],
+      [{"name": "pkg", "kind": "module",
+        "origin": "pkg.impl", "module": "pkg.impl"}])
+# and it is genuinely never called: no reference record cites app/bare.py
+citing = [
+    r for s in index["symbols"] for r in s["referenced_by"]
+    if r["file"] == "app/bare.py"
+]
+check("app/bare.py cites no symbol (import is never called)", citing, [])
+check("so the trace exists only via imports",
+      import_origins(index, "pkg.impl").count("app/bare.py"), 1)
+
+print()
+print("=" * 72)
+print("BULLET 5 — star-importing file lands in the source module's importer "
+      "set: kind unresolved, module = source module")
+print("=" * 72)
+check("app/starred.py entry",
+      imports["app/starred.py"],
+      [{"name": "*", "kind": "unresolved",
+        "origin": None, "module": "pkg.star_src"}])
+check("import_origins names the star importer",
+      import_origins(index, "pkg.star_src"), ["app/starred.py"])
+# app/viastar.py also imports FROM pkg.star_src, but it is the
+# unresolved_import_target case, whose module the ruling puts at null — so
+# it is deliberately absent here. Recorded so the exclusion is visible
+# rather than accidental.
+check("unresolved_import_target importer is excluded by the ruling",
+      "app/viastar.py" in import_origins(index, "pkg.star_src"), False)
+
+print()
+print("=" * 72)
+print("SURFACE — key presence and the two unresolved flavours")
+print("=" * 72)
+check("every indexed file has an entry list",
+      sorted(imports) == sorted(index["files"]), True)
+check("a file importing nothing gets []", imports["app/empty.py"], [])
+check("a file that fails to parse gets []", imports["app/broken.py"], [])
+check("...alongside its parse_error site",
+      [u["reason"] for u in index["unresolved"] if u["file"] == "app/broken.py"],
+      ["parse_error"])
+check("unresolved_import_target: origin AND module null",
+      imports["app/viastar.py"],
+      [{"name": "hidden_thing", "kind": "unresolved",
+        "origin": None, "module": None}])
+check("from-import of a submodule is module-kind",
+      imports["app/submod.py"],
+      [{"name": "impl", "kind": "module",
+        "origin": "pkg.impl", "module": "pkg.impl"}])
+check("aliased module import keeps the full module path",
+      imports["app/alias.py"],
+      [{"name": "pi", "kind": "module",
+        "origin": "pkg.impl", "module": "pkg.impl"}])
+
+print()
+print("=" * 72)
+print("PARITY — commit and worktree indexes agree on imports")
+print("=" * 72)
+check("commit vs worktree imports identical",
+      build_index(repo, "HEAD")["imports"] == imports, True)
+
+print()
+if failures:
+    print(f"FAILURES ({len(failures)}): {failures}")
+    sys.exit(1)
+print("ALL CHECKS PASSED")

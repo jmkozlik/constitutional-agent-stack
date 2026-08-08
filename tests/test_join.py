@@ -970,29 +970,52 @@ def test_f20_callable_extension_in_scope_presence_checks():
     assert status == "present"
 
 
-def test_f20_callable_extension_absent_until_built_on_real_spec():
-    # D1-B's import_origins is authored, inside index_assembly's own write
-    # scope (analyzer/indexer.py), and NOT built -> absent, so the node
-    # honestly reports outstanding work instead of validation-only.
-    # (Was symbol_table before the ratified index_assembly restructure;
-    # the test's intent is unchanged, only its owner moved.)
+def test_f20_callable_extension_absent_until_built(tmp_path):
+    # An authored callable inside the node's own write scope that is NOT
+    # built reports absent, so the node shows outstanding work instead of
+    # validation-only.
+    #
+    # This ran against the live spec until 3d-1r built import_origins and
+    # filed D-3d1r-1: the canary was the one outstanding item of a LIVE
+    # node, so a successful dispatch was always going to invalidate it.
+    # Pinned to a synthetic fixture now — a real dispatch must be able to
+    # succeed without breaking the demonstration of why it was needed.
+    spec = SPEC_SURFACED.replace(
+        "      - core.base.ground() -> int",
+        '      - core.base.ground() -> int\n'
+        '      - "core.base.unbuilt_yet(x: int) -> int  [authored]"',
+    )
+    specs, repo = make_join_fixture(tmp_path, spec, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    delta = join.compute_delta(plan, index, resolved, "base", repo=repo)
+    status = next(
+        s for e, s in delta["callables"]
+        if e.startswith("core.base.unbuilt_yet(")
+    )
+    assert status == "absent"
+    assert delta["kind"] == "partial"
+    assert any("unbuilt_yet" in o for o in delta["outstanding"])
+    # Seeded callables in the same scope stay unaffected.
+    assert next(
+        s for e, s in delta["callables"]
+        if e.startswith("core.base.ground(")
+    ) == "present"
+
+
+def test_f20_import_origins_now_reports_present_on_real_spec():
+    # The other half of D-3d1r-1: 3d-1r built it, so the live spec must now
+    # report present. This is the dispatch landing, asserted.
     plan = join.load_plan(PROJECT_ROOT / "harness" / "specs")
     index = build_index(PROJECT_ROOT, None)
     resolved = join.resolve_writes(plan, index)
     delta = join.compute_delta(
         plan, index, resolved, "index_assembly", repo=PROJECT_ROOT
     )
-    status = next(
-        s for e, s in delta["callables"]
-        if e.startswith("analyzer.indexer.import_origins(")
-    )
-    assert status == "absent"
-    assert delta["kind"] == "partial"
-    assert any("import_origins" in o for o in delta["outstanding"])
-    # Seeded callables in the same scope stay unaffected.
     assert next(
         s for e, s in delta["callables"]
-        if e.startswith("analyzer.indexer.build_index(")
+        if e.startswith("analyzer.indexer.import_origins(")
     ) == "present"
 
 
