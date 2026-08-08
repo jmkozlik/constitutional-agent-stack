@@ -517,9 +517,30 @@ def _replay_targets(repo) -> tuple:
     return targets, ambiguous
 
 
-# Flip to False in the same commit that settles F36, and the qualifier
-# disappears from every report that quotes this tool.
-F36_OPEN = True
+NO_HANDOFF = "(none for this dispatch)"
+
+
+def _handoff_replayable(record: dict, packet_path=None) -> bool:
+    """Is THIS packet rebuildable from its commit?
+
+    F36 landed as a per-packet fact rather than a global mood. Three cases:
+    a record written under the fix states it; a packet whose handoff section
+    is empty had nothing uncommitted to lose and replays fine whatever its
+    record says; anything else carried an injected handoff and can never be
+    rebuilt. The middle case matters — marking a handoff-free packet
+    uncitable would suppress a true IDENTICAL, which is the same error F36
+    is about, pointing the other way.
+    """
+    if "handoff_replayable" in record:
+        return bool(record["handoff_replayable"])
+    if packet_path is not None:
+        try:
+            text = Path(packet_path).read_text(errors="replace")
+        except OSError:
+            return False
+        section = text.split("## State — handoff", 1)
+        return len(section) < 2 or NO_HANDOFF in section[1]
+    return False
 
 
 def run_evals(tool_input: dict, *, repo) -> dict:
@@ -555,8 +576,9 @@ def run_evals(tool_input: dict, *, repo) -> dict:
         # Ruled: no replay line is cited as IDENTICAL until the handoff's
         # relationship to the packet hash is settled. Enforced here rather
         # than left to whoever is writing the report.
-        if verdict == "IDENTICAL" and F36_OPEN:
-            verdict = "IDENTICAL* (NOT CITABLE — F36 open)"
+        if verdict == "IDENTICAL" and not _handoff_replayable(record, packet):
+            verdict = ("IDENTICAL* (NOT CITABLE — packet predates the F36 fix; "
+                       "its handoff was never committed)")
         verdicts.append(verdict)
         sections.append(
             f"### replay {record['dispatch_id']} "
@@ -573,12 +595,14 @@ def run_evals(tool_input: dict, *, repo) -> dict:
     if ambiguous:
         header.append("not replayed (ambiguous, stated rather than guessed):")
         header += [f"  - {where}: {why}" for where, why in ambiguous]
-    if F36_OPEN:
+    legacy = [r["dispatch_id"] for r, pkt in targets
+              if not _handoff_replayable(r, pkt)]
+    if legacy:
         header.append(
-            "F36 OPEN: replay verdicts above are marked NOT CITABLE. A packet "
-            "carrying an injected handoff is not rebuildable from the commit, "
-            "so IDENTICAL does not currently mean what reports have read it "
-            "to mean. Do not quote these as IDENTICAL until F36 is ruled."
+            "F36: " + ", ".join(legacy) + " predate the fix — their handoffs "
+            "were never committed, so those packets can never be rebuilt from "
+            "their commit and their verdicts are NOT CITABLE. Packets built "
+            "since the fix replay normally and may be cited."
         )
     header.append(
         "NOT RUN HERE: the three-probe packet-sufficiency protocol "

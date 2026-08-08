@@ -108,7 +108,12 @@ def prepare(
 
     handoff_text = None
     if handoff:
-        handoff_text = Path(handoff).read_text(encoding="utf-8")
+        raise DispatchError(
+            "--handoff takes raw text from outside the commit, which is what "
+            "broke replay (F36): a packet built from it cannot be rebuilt "
+            "from the commit. Commit the handoff and pass --handoff-path "
+            "<repo-relative path> instead."
+        )
     packet = join.assemble_packet(
         plan, index, resolved, node, role,
         identities_dir=identities, repo=repo, handoff=handoff_text,
