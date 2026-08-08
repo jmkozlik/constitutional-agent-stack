@@ -1,6 +1,29 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 008. **`harness/dispatch.py` built
+**Updated:** 2026-08-08, after report 009. **Restructure + origins
+reconciliation applied; F28/F29 built; a P6 leak found and closed.**
+index_assembly owns indexer.py; **W05 and E08 both zero, asserted by test
+— F30 retired**. The restructure needed more than the one ruled edge
+(indexer.py is consumed by affected.py and cli.py and consumes refs.py,
+which unresolved_sites co-owns); both readings were compiled and the one
+that holds is recorded, price = three W03s. **F28 deviates, flagged**:
+env-binding has no injection point (no spawn step, and a session-global
+var misbinds concurrent dispatches), so the fence binds by TARGET path;
+LEX_FENCE stays as override. The matcher was `Write|Edit|NotebookEdit|
+Bash` — Read/Grep/Glob never reached the hook, so F29 would have shipped
+inert; extended. **F29**: tester hard (.harness only, pathless Grep/Glob
+refused), executor discloses to `reads_out_of_packet`/`self_served_misses`
+(NOT miss_log), bash read shapes included. **F33 closed**: prose types
+lines leaked into every node's tester packet (\\b\\b matched anything) —
+gitio's blind tester was handed the imports contract. **F32 new**: the
+canary proves the hook script, not its registration. 240 tests.
+**3d-1 NOT resumed — STOP.** The ruling closed two of its six blocking
+questions; four remain and one has no legal answer under the ruled enum
+(star_import/unresolved_import_target have no kind). **Three-line
+addendum PROPOSED — one word each and 3d-1 resumes with its answer
+prepared.** Then 3d-2, then that round runs through lex.
+
+**Previous:** 2026-08-08, after report 008. **`harness/dispatch.py` built
 (the deterministic hands: prepare/harvest/teardown, compiled law-free
 prompt, inert harvest) and `lex` v0 built (launcher + lex-operator skill +
 six verbs; Phase 0 throw-list-as-interview finally implemented).** **3d-1
