@@ -21,9 +21,15 @@ is fixed: the F20 canary I re-pointed at a live node's only outstanding
 item was guaranteed to break on success; re-pinned to a fixture. New:
 **F34** (F28 residual, candidate recorded, not built), **D-3d1r-4**.
 Containment now supersedes I5 for testers (foreign types are an executor
-affordance). **lex v1 built but UNREVIEWED and uncommitted** — 9 modules,
-~100 tests, old launcher demoted to `lex-v0`; its own report has not
-landed. Index 30→42, all lex. Next: R1/R2 → 3d-2 → lex v1 review → the
+affordance). **lex v1 built, REVIEWED and committed** (`4348746`) — 9 modules,
+~100 tests, old launcher demoted to `lex-v0`. System prompt is the skill
+byte-for-byte (verified). Confirm gate probed adversarially: no bypass
+kwarg, no environ read (AST-checked), bare Enter/EOF/Ctrl-C refuse,
+model-supplied confirm/force/assume_yes/approved ignored, fails closed on
+unknown tool + missing action + non-dict, and with confirm stubbed to
+refuse `execute` is called zero times. Tool surface is exactly the eight
+harness commands as argv lists — no shell=True, no fs access. NOT yet
+driven: no session conducted through it. Index 30→42, all lex. Next: R1/R2 → 3d-2 → lex v1 review → the
 round after conducts through lex.
 
 **Previous:** 2026-08-08, after report 009. **Restructure + origins
