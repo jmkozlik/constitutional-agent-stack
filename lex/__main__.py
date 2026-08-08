@@ -3,6 +3,7 @@
     python -m lex                open the operator
     python -m lex plan           open it and go straight to /plan
     python -m lex run 3d-1       open it and go straight to /run 3d-1
+    python -m lex ui             open the lab in a browser (no API key needed)
 
 The v0 launcher (./lex-v0, which opens a Claude Code session carrying the
 lex-operator skill) stays in the tree as a fallback shell. This is the
@@ -46,6 +47,8 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--repo", default=".", help="repo root; default cwd")
     parser.add_argument("--model", default=agent.MODEL)
+    parser.add_argument("--port", type=int, default=7717,
+                        help="port for `lex ui`; default 7717")
     args = parser.parse_args(argv)
 
     repo = Path(args.repo).resolve()
@@ -56,6 +59,14 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return 2
+
+    # `lex ui` opens the lab on localhost (docs/lab-brief.md). It needs no
+    # API key: the lab is a read layer over the repo, and the model loop is
+    # the terminal's business.
+    if args.opening and args.opening[0].lstrip("/") == "ui":
+        from lab import app as lab_app
+
+        return lab_app.serve(repo=repo, port=args.port)
 
     from lex import providers
 
