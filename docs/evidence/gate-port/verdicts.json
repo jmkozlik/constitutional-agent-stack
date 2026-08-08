@@ -1,0 +1,34 @@
+{
+  "gate_js_claude": {
+    "executor:symbol_table": "sufficient_with_gaps",
+    "executor:affected_symbols": "sufficient_with_gaps",
+    "tester:affected_symbols": "sufficient_with_gaps"
+  },
+  "gate_py_claude": {
+    "executor:symbol_table": "sufficient_with_gaps",
+    "executor:affected_symbols": "sufficient_with_gaps",
+    "tester:affected_symbols": "sufficient_with_gaps"
+  },
+  "gate_py_grok": {
+    "executor:symbol_table": "sufficient",
+    "executor:affected_symbols": "sufficient",
+    "tester:affected_symbols": "sufficient"
+  },
+  "missing_counts": {
+    "gate.js/Claude": {
+      "executor:symbol_table": 6,
+      "executor:affected_symbols": 4,
+      "tester:affected_symbols": 6
+    },
+    "gate.py/Claude": {
+      "executor:symbol_table": 4,
+      "executor:affected_symbols": 4,
+      "tester:affected_symbols": 5
+    },
+    "gate.py/Grok": {
+      "executor:symbol_table": 0,
+      "executor:affected_symbols": 0,
+      "tester:affected_symbols": 0
+    }
+  }
+}

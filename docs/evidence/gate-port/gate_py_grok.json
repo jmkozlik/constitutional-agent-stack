@@ -1,0 +1,24 @@
+{
+  "model": "grok-4",
+  "probes": [
+    {
+      "missing": [],
+      "notes": "validation-only dispatch; full implementation of extract_symbols + helpers + modpath present in packet and satisfies both done_when bullets via unparse + runtime lineno computation",
+      "probe": "executor:symbol_table",
+      "verdict": "sufficient"
+    },
+    {
+      "missing": [],
+      "notes": "Full implementation of compute_affected + Row/AffectedReport + all helpers already present in write scope; all authored contracts, seeded types, error rules, and done_when scenarios are covered by the provided code and consumed interfaces.",
+      "probe": "executor:affected_symbols",
+      "verdict": "sufficient"
+    },
+    {
+      "missing": [],
+      "notes": "All guarantees name observable outcomes on the declared surface (compute_affected + AffectedReport/Row fields); no untestable items or unnamed callables.",
+      "probe": "tester:affected_symbols",
+      "verdict": "sufficient"
+    }
+  ],
+  "protocol": "three-probe packet-sufficiency (ported from gate.js)"
+}

@@ -185,6 +185,12 @@ def run(client, *, system: str, repo, model: str = agent.MODEL, commit: str = ""
     except KeyboardInterrupt:
         out.write("\ninterrupted.\n")
         log.note("session interrupted by the human (Ctrl-C)")
+    # lex reports its own consumption before it files anything. The number
+    # goes into the session log too, so a report citing this session's cost
+    # cites a recorded figure rather than a remembered one.
+    spent = session.usage.render(model=model)
+    log.note(spent)
+    out.write("\n" + spent + "\n")
     target = log.write()
     out.write(
         f"\nsession log: {target}\n"

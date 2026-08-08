@@ -24,6 +24,8 @@ import json
 import os
 from dataclasses import dataclass, field
 
+from lex import usage
+
 API_URL = "https://api.x.ai/v1/chat/completions"
 DEFAULT_XAI_MODEL = os.environ.get("LEX_MODEL", "grok-4")
 TIMEOUT = 300.0
@@ -55,6 +57,9 @@ class Message:
     content: list
     stop_reason: str
     stop_details: object = None
+    # Normalised by lex.usage on the way in, so the loop's accounting does
+    # not have to know which vendor produced the turn.
+    usage: dict = None
 
 
 # --- translation ------------------------------------------------------------
@@ -235,7 +240,11 @@ class XAIProvider:
             "length": "max_tokens",
             "content_filter": "refusal",
         }.get(finish, "end_turn")
-        return Message(content=blocks or [TextBlock("")], stop_reason=stop)
+        reported = payload.get("usage")
+        return Message(
+            content=blocks or [TextBlock("")], stop_reason=stop,
+            usage=usage.from_openai(reported) if reported else None,
+        )
 
 
 def preflight(vendor: str, api_key: str, model: str | None = None) -> dict:

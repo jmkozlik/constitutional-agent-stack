@@ -12,7 +12,7 @@ escalation, and no path here that runs a gated command without the gate.
 
 import sys
 
-from lex import request_mem
+from lex import request_mem, usage as usage_mod
 from lex.tools import render, run_tool, schemas
 
 MODEL = "claude-opus-5"
@@ -68,6 +68,9 @@ class Session:
         self.effort = effort
         self.out = out or sys.stdout
         self.messages: list = []
+        # lex counts its own consumption rather than asking the human to read
+        # it off a vendor console after the fact.
+        self.usage = usage_mod.Usage()
 
     # --- API ---------------------------------------------------------------
 
@@ -144,6 +147,7 @@ class Session:
         rounds = 0
         while True:
             message = self._stream_turn()
+            self.usage.record(message)
             self.messages.append({"role": "assistant", "content": message.content})
 
             text = "".join(
