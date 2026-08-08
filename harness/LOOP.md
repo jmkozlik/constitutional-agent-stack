@@ -203,6 +203,16 @@ Queue: 3b → 3c → F18 ratification → 3d → W05 restructure.
 
 ## Standing law
 
+- **Fidelity binds the ruled text, never the blast radius.** When applying
+  a ruling verbatim would destroy other ratified content, strike minimally,
+  add the ruled text verbatim, and flag the composition. (Ratified from
+  R1's application, report 011.)
+- **Absent-side proofs pin to synthetic fixtures only.** No test and no
+  gate may assert a live node's outstanding item as absent — succeeding at
+  the work would destroy the evidence that the work was needed. Enforced by
+  review today; D-3d1r-1 and the F20 locked demo are the two instances that
+  produced the law. (Ratified report 011.)
+
 - **Role is an explicit input.** Any derivation whose correct output differs
   by role takes role as an explicit input — never infers it, never assumes
   the executor case. (Ratified 2026-08-07 from the fence: tester allowed set
@@ -237,3 +247,17 @@ Authoritative table lives in the latest report under harness/reports/.
 ## Next
 
 See the `next` section of the latest report.
+
+## Open refinements (filed, explicitly NOT ruled)
+
+- **F35 — the `callers_unknowable` iff has no category qualifier.** The
+  executor implemented it as written and said so: on `moved` and `body`
+  rows the flag is true per the iff but carries nothing actionable, since
+  those categories have already established that callers are unaffected.
+  It did not narrow the iff to make the numbers look better — "the contract
+  states it without category qualification, the tester's boundary tests
+  confirm both directions, and implementing it as written is what lets this
+  observation be made at all." The contract stands as blind-verified.
+  Revisit with the confidence-granularity work. It also notes the own-file
+  clause overlaps `confidence: low`, which the indexer sets on the same
+  condition. (Filed report 011, non-blocking, ratifier declined to rule.)
