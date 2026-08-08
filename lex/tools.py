@@ -517,6 +517,11 @@ def _replay_targets(repo) -> tuple:
     return targets, ambiguous
 
 
+# Flip to False in the same commit that settles F36, and the qualifier
+# disappears from every report that quotes this tool.
+F36_OPEN = True
+
+
 def run_evals(tool_input: dict, *, repo) -> dict:
     """join plan + replay over every unambiguous shipped packet on record."""
     specs = tool_input.get("specs") or "harness/specs"
@@ -544,6 +549,14 @@ def run_evals(tool_input: dict, *, repo) -> dict:
         verdict = {0: "IDENTICAL", 1: "DIVERGED", 2: "CHECK-ERROR"}.get(
             result["exit_code"], f"exit {result['exit_code']}"
         )
+        # F36 is open: a packet carrying an injected handoff is not
+        # reproducible from (spec, commit, join version), so an IDENTICAL
+        # here does not yet mean what reports have been taking it to mean.
+        # Ruled: no replay line is cited as IDENTICAL until the handoff's
+        # relationship to the packet hash is settled. Enforced here rather
+        # than left to whoever is writing the report.
+        if verdict == "IDENTICAL" and F36_OPEN:
+            verdict = "IDENTICAL* (NOT CITABLE — F36 open)"
         verdicts.append(verdict)
         sections.append(
             f"### replay {record['dispatch_id']} "
@@ -560,6 +573,13 @@ def run_evals(tool_input: dict, *, repo) -> dict:
     if ambiguous:
         header.append("not replayed (ambiguous, stated rather than guessed):")
         header += [f"  - {where}: {why}" for where, why in ambiguous]
+    if F36_OPEN:
+        header.append(
+            "F36 OPEN: replay verdicts above are marked NOT CITABLE. A packet "
+            "carrying an injected handoff is not rebuildable from the commit, "
+            "so IDENTICAL does not currently mean what reports have read it "
+            "to mean. Do not quote these as IDENTICAL until F36 is ruled."
+        )
     header.append(
         "NOT RUN HERE: the three-probe packet-sufficiency protocol "
         "(docs/evidence/step3t/gate.js). lex has no lever for it — it is a JS "

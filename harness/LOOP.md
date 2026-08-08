@@ -1,6 +1,18 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 012. **MAIDEN VOYAGE NOT SAILED —
+**Updated:** 2026-08-08, after report 013. **F35 and F36 carried in full to
+the ratifier** (text, evidence, candidates; neither self-ratified).
+**Ruled: the maiden voyage runs on the ratified default provider**
+(Anthropic), cargo unchanged — lex evals + the first WRAP row + conduct
+assessment; the Grok shakedown is its own labelled session. The xAI
+adapter is built and the law is asserted provider-independent by test,
+but it is NOT the voyage. **Ruled and now MECHANISED: no replay line is
+cited as IDENTICAL until F36 is settled** — the evals tool marks its own
+verdicts `IDENTICAL* (NOT CITABLE — F36 open)`, and a single
+`F36_OPEN = True` in lex/tools.py flips it off in the commit that settles
+the finding. F36 gates nothing else meanwhile. 364 tests.
+
+**Previous:** 2026-08-08, after report 012. **MAIDEN VOYAGE NOT SAILED —
 `ANTHROPIC_API_KEY` is not set, so lex v1's model loop cannot run; I did
 not source a credential.** Both cargo items built anyway. **Cargo 1: lex
 evals** (`harness/evals.py`, wired into lex's evals lever) — 41% of
