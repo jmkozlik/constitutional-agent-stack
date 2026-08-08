@@ -526,6 +526,12 @@ def run_evals(tool_input: dict, *, repo) -> dict:
     plan = execute(build_argv("join_plan", {"specs": specs}, repo=repo), cwd=repo)
     sections.append("### plan\n" + render(plan))
 
+    # The reader over the loop's own artifacts (harness.evals): miss depth
+    # per node, defects by catch layer, cost per dispatch, finding
+    # recurrence. A harness command, so it is a legal lever.
+    measured = execute([py, "-m", "harness.evals"], cwd=repo)
+    sections.append("### measures\n" + render(measured))
+
     targets, ambiguous = _replay_targets(repo)
     verdicts = []
     for record, packet in targets:

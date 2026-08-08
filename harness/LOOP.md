@@ -1,6 +1,30 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 011. **3d-2 LANDS — step 3 closes.**
+**Updated:** 2026-08-08, after report 012. **MAIDEN VOYAGE NOT SAILED —
+`ANTHROPIC_API_KEY` is not set, so lex v1's model loop cannot run; I did
+not source a credential.** Both cargo items built anyway. **Cargo 1: lex
+evals** (`harness/evals.py`, wired into lex's evals lever) — 41% of
+defects caught in-dispatch vs 59% in-report; miss depth 9 for
+symbol_table vs 0-2 elsewhere, which is exactly the dispatch that
+stopped blocking (ARCHITECTURE (5)'s spec-quality signal, measured). It
+found a defect in itself on first run (testers file tester_report.md;
+reading only attestation.md reported 3t's asks as zero) — fixed.
+**Cargo 2: task.compile** fills the vault's REAL contract template from a
+spec node; every stack-won clause verbatim (asserted by test); model tier
+left UNFILLED because WRAP's `model:` proposal is unratified and a
+compiler that picked one would enact its own proposal. **Vault ledger
+0190 filed** (one new file; nothing else touched). Executed through lex's
+tool layer — `requires_confirmation("evals")` is False, so a read-only
+session raises no gate and there was never one for me to answer.
+**F36 NEW, BLOCKING FOR REPLAY**: the handoff channel breaks packet
+replay — 2 DIVERGED are exactly the two dispatches I injected a handoff
+into, and the diff is entirely the handoff section. Mine, from report
+010; F23 was closed on the claim that DIVERGED means the packet not the
+compiler, and that is currently false for two packets. Three candidates,
+(1) commit the handoff before building the packet, recommended. 356
+tests. Next: F36 ruling, then the voyage actually sails.
+
+**Previous:** 2026-08-08, after report 011. **3d-2 LANDS — step 3 closes.**
 R1/R2 applied verbatim (one composition decision flagged: R1's line also
 carried the ratified shape + sort rule, so only the contradicted clause
 was struck and the ruled text added as its own entry). Sub-ruling built:
