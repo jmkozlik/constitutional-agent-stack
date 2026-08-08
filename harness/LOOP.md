@@ -1,6 +1,24 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 013. **F35 and F36 carried in full to
+**Updated:** 2026-08-08, after report 014. **MAIDEN VOYAGE — PLUMBING +
+CARGO LEG, ON GROK — STILL NOT SAILED: `XAI_API_KEY` is not set in the
+environment.** Ruled: the voyage sails on Grok, labelled as the plumbing
++ cargo leg; **the CONDUCT ASSESSMENT IS EXPLICITLY OUT OF SCOPE for this
+leg and defers to an Anthropic-keyed session** — a clean run here proves
+the plumbing and the cargo, NOT that the conduct holds. Everything else
+stands: /evals live, wrap row shown, breakage filed like the hands'.
+**F36 candidate 1 APPLIED** (reading flagged, not assumed): the handoff is
+read from a repo-relative path at the pinned commit, so a packet carrying
+one is rebuildable from what replay reads; an uncommitted path is refused
+with F36 named. Harvest now copies the handoff. **F36_OPEN stays True and
+the NOT CITABLE qualifier keeps printing** — correct behaviour per the
+ruling, and the two shipped packets carrying uncommitted handoffs remain
+unreplayable regardless of the fix. **`lex --preflight` added** because
+the xAI model id is a guess: one cheap call turns it into a checked fact.
+368 tests. To sail: `export XAI_API_KEY=...` then
+`python -m lex --preflight` and `echo "" | python -m lex evals`.
+
+**Previous:** 2026-08-08, after report 013. **F35 and F36 carried in full to
 the ratifier** (text, evidence, candidates; neither self-ratified).
 **Ruled: the maiden voyage runs on the ratified default provider**
 (Anthropic), cargo unchanged — lex evals + the first WRAP row + conduct
