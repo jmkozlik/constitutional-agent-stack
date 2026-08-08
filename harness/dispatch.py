@@ -28,6 +28,9 @@ from harness import join
 
 GENERATOR = "harness.dispatch/1"
 
+_HARVEST_SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv"}
+_HARVEST_SKIP_SUFFIXES = {".pyc", ".pyo"}
+
 # Operational context only. The contract — deliverables, request_mem shape,
 # fence terms, done_when — lives in the packet's own Protocol section (F3:
 # dispatch prompts carry no law). Everything here is environment.
@@ -195,6 +198,13 @@ def harvest(ctx, *, evidence=None, started=None, finished=None) -> dict:
             if not path.is_file():
                 continue
             rel = path.relative_to(source)
+            # Fixture repos and caches are apparatus, not evidence. 3d-1's
+            # scratch carried two full .git trees; harvesting them would
+            # bury the artifacts a reader came for.
+            if any(part in _HARVEST_SKIP_DIRS for part in rel.parts):
+                continue
+            if path.suffix in _HARVEST_SKIP_SUFFIXES:
+                continue
             # Inert storage: a harvested .py must never be indexable source.
             if path.suffix == ".py":
                 rel = rel.with_suffix(".py.txt")

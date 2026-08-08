@@ -1,0 +1,3 @@
+"""Package facade: re-exports the implementation."""
+
+from pkg.impl import Widget, fetch, helper

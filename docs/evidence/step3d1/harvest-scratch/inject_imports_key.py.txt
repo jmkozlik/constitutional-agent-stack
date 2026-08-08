@@ -1,0 +1,30 @@
+"""Scope measurement, not an implementation.
+
+The spec adds a top-level `imports` key to the index. Every consumer of that
+dict — harness/join.py, harness/fence.py, analyzer/cli.py, analyzer/affected.py
+and the whole tests/ tree — is OUTSIDE this dispatch's exhaustive write scope.
+If any of them enforces an exact top-level key set or a golden index fixture,
+the task is not completable inside the fence and that is a halt-and-file, not
+a workaround.
+
+This pytest plugin answers that question without shipping anything: it wraps
+analyzer.indexer.build_index so every index grown during the suite carries a
+plausibly-shaped extra `imports` key. The shape is deliberately a placeholder
+(one entry per indexed file, empty origins) — the question under test is
+key tolerance, not origin semantics, which remain a blocking request_mem.
+
+Run:  .venv/bin/python -m pytest -q -p inject_imports_key
+"""
+
+import analyzer.indexer as _indexer
+
+_real_build_index = _indexer.build_index
+
+
+def _build_index_with_imports(repo, commit):
+    index = _real_build_index(repo, commit)
+    index["imports"] = {rel: [] for rel in index["files"]}
+    return index
+
+
+_indexer.build_index = _build_index_with_imports

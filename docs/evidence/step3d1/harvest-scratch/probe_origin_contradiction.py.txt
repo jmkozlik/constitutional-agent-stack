@@ -1,0 +1,99 @@
+"""Makes the bullet-5 blocker concrete, observed only through build_index's
+returned value (no reading of the reference layer's internals).
+
+The two spec lines that govern the imports table disagree about what an
+`origin` IS:
+
+  symbol_table : "origins: [dotted origins as resolved by the reference
+                 layer, re-export chase included] ... taken from the
+                 Resolver's output"
+  affected_symbols (the sole declared consumer, Row.callers_unknowable):
+                 "every file whose import table contains any binding whose
+                 resolved origin is the symbol's defining MODULE (module
+                 imports, from-imports of any name in it, and re-export
+                 chains)"
+
+The reference layer resolves to SYMBOL paths. A module is not a symbol: this
+probe shows the index contains no record for any module, so a symbol-path
+origin can never equal a defining module, and a bare `import pkg.impl` — which
+the consumer's line names explicitly as "module imports" — resolves to no
+symbol at all and would leave the edge invisible.
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from analyzer.indexer import build_index  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent / "repo_origins"
+
+FILES = {
+    "pkg/__init__.py": "from pkg.impl import helper\n",
+    "pkg/impl.py": "def helper(name: str) -> str:\n    return name\n",
+    # (a) bare module import, no use of the bound name anywhere
+    "app/lazy.py": "import pkg.impl\n",
+    # (b) from-import through the package facade, then a call
+    "app/via_facade.py": "from pkg import helper\n\n\ndef go():\n    return helper('x')\n",
+}
+
+
+def git(*args: str) -> str:
+    out = subprocess.run(
+        ["git", "-c", "user.email=t@t.t", "-c", "user.name=t", "-C", str(ROOT), *args],
+        capture_output=True, check=True,
+    )
+    return out.stdout.decode().strip()
+
+
+subprocess.run(["rm", "-rf", str(ROOT)], check=True)
+ROOT.mkdir(parents=True)
+git("init", "-q", "-b", "main")
+for rel, text in FILES.items():
+    path = ROOT / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+git("add", "-A")
+git("commit", "-q", "-m", "origins fixture")
+sha = git("rev-parse", "HEAD")
+
+index = build_index(ROOT, sha)
+paths = sorted({r["path"] for r in index["symbols"]})
+modules = sorted({"pkg", "pkg.impl", "app.lazy", "app.via_facade"})
+
+print("files indexed:", index["files"])
+print("top-level index keys:", sorted(index))
+print("every symbol path in the index:", paths)
+print("module paths present as symbol records:", [m for m in modules if m in paths])
+print()
+
+print("(a) app/lazy.py contains exactly `import pkg.impl` and uses nothing.")
+lazy_refs = [
+    (r["path"], ref)
+    for r in index["symbols"]
+    for ref in r["referenced_by"]
+    if ref["file"] == "app/lazy.py"
+]
+lazy_unres = [u for u in index["unresolved"] if u["file"] == "app/lazy.py"]
+print("    reference records naming app/lazy.py :", lazy_refs)
+print("    unresolved sites naming app/lazy.py  :", lazy_unres)
+print("    => nothing in the returned index ties app/lazy.py to pkg.impl.")
+print("       A symbol-path origin for the binding `pkg` does not exist,")
+print("       because `pkg.impl` is a module and modules get no records.")
+print()
+
+print("(b) app/via_facade.py reaches pkg.impl.helper only through the facade.")
+facade = [
+    (r["path"], ref)
+    for r in index["symbols"]
+    for ref in r["referenced_by"]
+    if ref["file"] == "app/via_facade.py"
+]
+for path, ref in facade:
+    print(f"    call edge resolved to {path} <- {ref['file']}:{ref['line']}"
+          f" in {ref['in_symbol']}")
+print("    => the re-export chase works for a CALLED name. The consumer's")
+print("       line needs the same edge for an IMPORTED-but-uncalled name,")
+print("       which no current index field carries.")

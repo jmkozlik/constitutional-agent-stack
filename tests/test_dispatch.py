@@ -126,6 +126,30 @@ def test_harvest_collects_artifacts_stores_code_inert_and_gates(tmp_path):
         dispatch.teardown(ctx)
 
 
+def test_harvest_skips_vcs_and_cache_noise(tmp_path):
+    # First real use (3d-1) built fixture git repos under scratch; a naive
+    # rglob harvested 100+ .git objects and __pycache__ blobs as "evidence".
+    ctx, repo = prepared(tmp_path)
+    try:
+        scratch = ctx["worktree"] / ".harness" / "scratch"
+        (scratch / "fixture" / ".git" / "objects" / "ab").mkdir(parents=True)
+        (scratch / "fixture" / ".git" / "objects" / "ab" / "cdef").write_bytes(b"\x01\x02")
+        (scratch / "fixture" / ".git" / "config").write_text("[core]\n")
+        (scratch / "__pycache__").mkdir()
+        (scratch / "__pycache__" / "m.cpython-313.pyc").write_bytes(b"\x00")
+        (scratch / "keep.py").write_text("x = 1\n")
+        (scratch / "fixture" / "mod.py").write_text("y = 2\n")
+        evidence = tmp_path / "evidence3"
+        result = dispatch.harvest(ctx, evidence=evidence)
+        harvested = set(result["artifacts"])
+        assert any(a.endswith("keep.py.txt") for a in harvested)
+        assert any(a.endswith("fixture/mod.py.txt") for a in harvested)
+        assert not any(".git" in a for a in harvested)
+        assert not any("__pycache__" in a or a.endswith(".pyc") for a in harvested)
+    finally:
+        dispatch.teardown(ctx)
+
+
 def test_harvest_reports_a_gate_violation(tmp_path):
     ctx, repo = prepared(tmp_path)
     try:

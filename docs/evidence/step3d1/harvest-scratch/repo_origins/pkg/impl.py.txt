@@ -1,0 +1,2 @@
+def helper(name: str) -> str:
+    return name

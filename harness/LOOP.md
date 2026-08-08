@@ -1,6 +1,28 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 007. **Bundle applied verbatim
+**Updated:** 2026-08-08, after report 008. **`harness/dispatch.py` built
+(the deterministic hands: prepare/harvest/teardown, compiled law-free
+prompt, inert harvest) and `lex` v0 built (launcher + lex-operator skill +
+six verbs; Phase 0 throw-list-as-interview finally implemented).** **3d-1
+EXECUTED through the new hands: 4 ATTEST / 1 FILE (blocking), zero code
+written, gate clean.** It stops on **D-3d1-1: the two D1-B lines
+contradict** — `symbol_table` says origins are symbol paths,
+`affected_symbols` tests them as module paths; demonstrated through the
+surface (`import pkg.impl`, uncalled, leaves no trace in the index). Three
+candidate rulings filed; the executor refused to pick because picking
+decides affected_symbols' behaviour from inside symbol_table's scope.
+**RULING NEEDED — 3d-1 resumes the moment it lands.** Two misses are mine
+and are in the report: I did not prepare the request_mem answer 007 said to
+prepare, and `dispatch.harvest` was defective on first use (harvested
+`.git`/`__pycache__` as evidence; fixed, locked by test, F31 closed same
+round). New: **F29** (read fence undefined — the executor self-reported
+reading refs.py while the gate probe read the same five words the opposite
+way), **F30** (`symbol_table` consumes an undeclared interface; W05 would
+retire it). Index 28→30, explained. 235 tests. lex v0 is built but has not
+been driven — its first real session should be expected to break something.
+**Pending: D-3d1-1, Proposal D/E, F27, F28, F29, F30, 3t's D-2/D-3/D-4.**
+
+**Previous:** 2026-08-08, after report 007. **Bundle applied verbatim
 (A/B/C + D1-B + F20 extension YES + F23); 3t DISPATCHED AND CLEAN.**
 4 guarantees pass, 3 fail-first on one absent attribute
 (`Row.callers_unknowable`); blind, zero implementation writes, diff gate

@@ -1,0 +1,213 @@
+"""Evidence probe for 3d-1 done_when bullets 1-4.
+
+Observed through the value returned by the surface callables
+(build_index / serialize / extract_symbols), per observed_through.
+Prints one labelled block per bullet. Exit code is 0 iff every bullet's
+mechanical check held.
+"""
+
+import ast
+import hashlib
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import mkfixture  # noqa: E402  (same directory)
+
+from analyzer import gitio  # noqa: E402
+from analyzer.indexer import build_index, serialize  # noqa: E402
+from analyzer.modpath import module_path  # noqa: E402
+from analyzer.symbols import extract_symbols  # noqa: E402
+
+SCRATCH = Path(__file__).resolve().parent
+failures: list[str] = []
+
+
+def check(label: str, ok: bool) -> None:
+    print(f"  [{'OK' if ok else 'FAIL'}] {label}")
+    if not ok:
+        failures.append(label)
+
+
+def sha(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def by_path(index: dict) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {}
+    for record in index["symbols"]:
+        out.setdefault(record["path"], []).append(record)
+    return out
+
+
+fx = mkfixture.build(SCRATCH)
+repo, c1, c2, c3 = fx["repo"], fx["c1"], fx["c2"], fx["c3"]
+print(f"fixture repo: {repo}")
+print(f"c1={c1[:12]}  c2={c2[:12]}  c3={c3[:12]}\n")
+
+# --- bullet 1: indexing the same commit twice produces byte identical output --
+print("=== BULLET 1: same commit twice -> byte identical ===")
+a, b = serialize(build_index(repo, c1)), serialize(build_index(repo, c1))
+print(f"  in-process build #1 sha256={sha(a)} bytes={len(a.encode())}")
+print(f"  in-process build #2 sha256={sha(b)} bytes={len(b.encode())}")
+check("two in-process builds of c1 are byte identical", a.encode() == b.encode())
+
+one_liner = (
+    "import sys;"
+    "from analyzer.indexer import build_index, serialize;"
+    "sys.stdout.write(serialize(build_index(sys.argv[1], sys.argv[2])))"
+)
+digests = []
+for seed in ("0", "1", "random"):
+    env = dict(os.environ, PYTHONHASHSEED=seed)
+    out = subprocess.run(
+        [sys.executable, "-c", one_liner, repo, c1],
+        capture_output=True,
+        check=True,
+        env=env,
+        cwd=str(Path(__file__).resolve().parents[2]),
+    ).stdout
+    digests.append(hashlib.sha256(out).hexdigest())
+    print(f"  fresh process PYTHONHASHSEED={seed:<6} sha256={digests[-1]}")
+check("three fresh processes agree with the in-process bytes", set(digests) == {sha(a)})
+c2_bytes = serialize(build_index(repo, c2))
+check("a different commit produces different bytes (probe is discriminating)",
+      c2_bytes.encode() != a.encode())
+print()
+
+# --- bullet 2: every symbol path maps to >=1 record with location + signature -
+print("=== BULLET 2: every symbol path -> >=1 record with location + signature ===")
+index1 = build_index(repo, c1)
+records = by_path(index1)
+blobs = gitio.read_files(repo, c1, gitio.list_py_files(repo, c1))
+expected: set[str] = set()
+for rel, blob in blobs.items():
+    for record in extract_symbols(blob, rel):
+        expected.add(record["path"])
+print(f"  files indexed: {index1['files']}")
+print(f"  extract_symbols paths: {len(expected)}   index symbol records: "
+      f"{len(index1['symbols'])}   distinct index paths: {len(records)}")
+missing = sorted(expected - set(records))
+print(f"  paths in extract_symbols but absent from the index: {missing}")
+check("no extracted symbol path is missing from the index", not missing)
+
+bad_location, no_sig_key, empty_sig = [], [], []
+for path, group in sorted(records.items()):
+    for record in group:
+        ok_loc = (
+            isinstance(record.get("file"), str) and record["file"] in index1["files"]
+            and isinstance(record.get("start_line"), int) and record["start_line"] >= 1
+            and isinstance(record.get("end_line"), int)
+            and record["end_line"] >= record["start_line"]
+        )
+        if not ok_loc:
+            bad_location.append(path)
+        if "signature" not in record:
+            no_sig_key.append(path)
+        elif record["signature"] == "":
+            empty_sig.append(f"{path} [{record['kind']}]")
+check("every record carries a usable file + start_line/end_line", not bad_location)
+check("every record carries a signature key", not no_sig_key)
+print(f"  records whose signature renders as the empty string: {empty_sig}")
+print("  (observation, not a check: _signature_display returns '' for a class")
+print("   with no bases/keywords — see the FILE note in the attestation)")
+for path in sorted(records)[:6]:
+    r = records[path][0]
+    print(f"    {path:<28} {r['kind']:<9} {r['file']}:{r['start_line']}-"
+          f"{r['end_line']}  sig={r['signature']!r}")
+print()
+
+# --- bullet 3: reformatting whitespace does not change the body hash ----------
+print("=== BULLET 3: whitespace reformat -> body_hash unchanged ===")
+index2 = build_index(repo, c2)
+index3 = build_index(repo, c3)
+r1, r2, r3 = by_path(index1), by_path(index2), by_path(index3)
+impl_paths = sorted(p for p in r1 if r1[p][0]["file"] == "pkg/impl.py")
+diff = subprocess.run(
+    ["git", "-C", repo, "diff", "--stat", c1, c2, "--", "pkg/impl.py"],
+    capture_output=True, check=True,
+).stdout.decode().strip()
+print(f"  git diff --stat c1..c2 -- pkg/impl.py: {diff}")
+moved, changed_hash = [], []
+for path in impl_paths:
+    for old, new in zip(r1[path], r2[path]):
+        if (old["start_line"], old["end_line"]) != (new["start_line"], new["end_line"]):
+            moved.append(path)
+        if old["body_hash"] != new["body_hash"]:
+            changed_hash.append(path)
+        print(f"    {path:<28} c1 {old['start_line']:>3}-{old['end_line']:<3}"
+              f" body={old['body_hash']}  ->  c2 {new['start_line']:>3}-"
+              f"{new['end_line']:<3} body={new['body_hash']}")
+check("no body_hash changed across the whitespace-only reformat", not changed_hash)
+check("the reformat did move line ranges (probe is discriminating)", bool(moved))
+helper_c2, helper_c3 = r2["pkg.impl.helper"][0], r3["pkg.impl.helper"][0]
+print(f"  control, one real token edited at c3: pkg.impl.helper "
+      f"body {helper_c2['body_hash']} -> {helper_c3['body_hash']}")
+check("a real body edit does change body_hash (hash is not a constant)",
+      helper_c2["body_hash"] != helper_c3["body_hash"])
+print()
+
+# --- bullet 4: ranges are recomputed per commit, never stored as identity -----
+print("=== BULLET 4: ranges recomputed per commit, not identity ===")
+main1, main2 = r1["app.main.run"][0], r2["app.main.run"][0]
+print(f"  app.main.run  c1 lines {main1['start_line']}-{main1['end_line']}"
+      f"  c2 lines {main2['start_line']}-{main2['end_line']}  (import added at top)")
+print(f"  identity triple c1: path={main1['path']} sig={main1['sig_hash']} "
+      f"body={main1['body_hash']} decor={main1['decor_hash']}")
+print(f"  identity triple c2: path={main2['path']} sig={main2['sig_hash']} "
+      f"body={main2['body_hash']} decor={main2['decor_hash']}")
+check("the range moved while path and all three hashes held",
+      (main1["start_line"], main1["end_line"]) != (main2["start_line"], main2["end_line"])
+      and (main1["path"], main1["sig_hash"], main1["body_hash"], main1["decor_hash"])
+      == (main2["path"], main2["sig_hash"], main2["body_hash"], main2["decor_hash"]))
+
+# Recomputed, not carried: every range in the c2 index equals the range the
+# c2 blob's own AST reports. Nothing is inherited from the c1 index.
+blobs2 = gitio.read_files(repo, c2, gitio.list_py_files(repo, c2))
+truth: dict[tuple[str, str, int], int] = {}
+
+
+def walk(node, prefix, rel):
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            path = f"{prefix}.{child.name}"
+            start = child.lineno
+            if child.decorator_list:
+                start = min(start, child.decorator_list[0].lineno)
+            truth[(path, rel, start)] = child.end_lineno
+            walk(child, path, rel)
+        else:
+            walk(child, prefix, rel)
+
+
+for rel, blob in blobs2.items():
+    walk(ast.parse(blob), module_path(rel), rel)
+mismatched = [
+    (rec["path"], rec["start_line"], rec["end_line"])
+    for rec in index2["symbols"]
+    if truth.get((rec["path"], rec["file"], rec["start_line"])) != rec["end_line"]
+]
+print(f"  c2 records whose range disagrees with the c2 blob's own AST: {mismatched}")
+check("every c2 range is the c2 source's own range (recomputed, not carried)",
+      not mismatched)
+
+# Not identity: the hash inputs are name/params/annotations and unparsed body.
+# Two symbols with identical text at different line ranges hash identically.
+twin_src = b"def f(a: int) -> int:\n    return a\n"
+twin_shifted = b"\n\n# pushed down\n\n\ndef f(a: int) -> int:\n    return a\n"
+t1 = extract_symbols(twin_src, "m.py")[0]
+t2 = extract_symbols(twin_shifted, "m.py")[0]
+print(f"  same def at line {t1['start_line']} vs line {t2['start_line']}: "
+      f"sig {t1['sig_hash']}=={t2['sig_hash']}, body {t1['body_hash']}=={t2['body_hash']}")
+check("line position contributes nothing to sig_hash or body_hash",
+      (t1["sig_hash"], t1["body_hash"]) == (t2["sig_hash"], t2["body_hash"]))
+print("  note (observation, not a check): start_line DOES appear in the record")
+print("  sort key (path, file, start_line, sig_hash, body_hash) — ordering, not")
+print("  identity. See the attestation's scope note on this bullet.")
+print()
+
+print(f"RESULT: {'ALL CHECKS HELD' if not failures else 'FAILURES: ' + str(failures)}")
+sys.exit(1 if failures else 0)
