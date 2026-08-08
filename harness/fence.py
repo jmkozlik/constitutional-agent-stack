@@ -48,6 +48,12 @@ def build_fence(
         {} if role == "tester"
         else {entry: status for entry, status in delta["writes"]}
     )
+    # F29 (ratified, role-split). tester: hard — packet + out/ + scratch
+    # only, all of which live under .harness. executor: reads are not
+    # forbidden, invisible reads are — so its own write scope and .harness
+    # are in-packet, and anything else is logged as a disclosed read.
+    read_policy = "hard" if role == "tester" else "disclose"
+    reads = [FENCE_DIR] if role == "tester" else sorted(allowed) + [FENCE_DIR]
     return {
         "version": 1,
         "node": node_id,
@@ -55,6 +61,8 @@ def build_fence(
         "plan": dispatch.plan_hash,
         "packet_hash": packet_hash,
         "allowed": allowed,
+        "read_policy": read_policy,
+        "reads": reads,
         # Sanctioned ephemeral space (v0.4.1): fixtures, notes, the handoff.
         # Inside the worktree so the fence sees it; under .harness so the
         # diff gate exempts it.

@@ -127,6 +127,7 @@ def prepare(
     (worktree / ".harness" / "packet.md").write_text(packet, encoding="utf-8")
     fence_mod.apply_fence(built, worktree)
 
+    wall = canary(worktree)
     dispatch_plan = join.serialize_plan(
         plan, join.plan_checks(plan, index, resolved)
     ).plan_hash
@@ -151,6 +152,7 @@ def prepare(
             join.compute_delta(plan, index, resolved, node, repo=repo)
         ),
         "interpreter": interpreter,
+        "wall": wall,
         "prompt": PROMPT_TEMPLATE.format(
             worktree=worktree,
             packet=worktree / ".harness" / "packet.md",
@@ -162,6 +164,58 @@ def prepare(
                    indent=2, sort_keys=True) + "\n"
     )
     return {**manifest, "worktree": worktree}
+
+
+HOOK = Path(__file__).resolve().parent.parent / ".claude" / "hooks" / "write-fence.py"
+
+
+def canary(worktree) -> dict:
+    """F28 spawn canary: prove the wall refuses before an agent runs.
+
+    Feeds the hook the probes a dispatch must never be allowed — a write
+    outside the fence, and (under a hard read policy) a pathless search —
+    and fails if either is permitted.
+
+    LIMIT, stated because it matters: this exercises the hook SCRIPT. It
+    cannot prove the hook is registered in the session that will spawn the
+    agent, so it does not detect an unregistered matcher or a session with
+    hooks disabled. Proving registration needs an agent-side first-call
+    canary — filed, not claimed.
+    """
+    worktree = Path(worktree)
+    fence = json.loads((worktree / fence_mod.FENCE_DIR / "fence.json").read_text())
+    probes = [{
+        "tool": "Write",
+        "payload": {
+            "cwd": str(worktree),
+            "tool_name": "Write",
+            "tool_input": {"file_path": str(worktree / "conftest.py")},
+        },
+    }]
+    if fence.get("read_policy") == "hard":
+        probes.append({
+            "tool": "Grep",
+            "payload": {
+                "cwd": str(worktree),
+                "tool_name": "Grep",
+                "tool_input": {"pattern": "def "},
+            },
+        })
+    results = []
+    for probe in probes:
+        proc = subprocess.run(
+            [sys.executable, str(HOOK)],
+            input=json.dumps(probe["payload"]),
+            capture_output=True, text=True,
+        )
+        results.append({
+            "probe": probe["tool"],
+            "denied": proc.returncode == 2,
+            "message": proc.stderr.strip()[:200],
+        })
+    live = all(r["denied"] for r in results)
+    return {"wall": "live" if live else "INERT", "probes": results,
+            "proves": "hook script logic only, not its registration"}
 
 
 def _load_manifest(ctx) -> dict:
@@ -216,6 +270,21 @@ def harvest(ctx, *, evidence=None, started=None, finished=None) -> dict:
     packet = worktree / ".harness" / "packet.md"
     if packet.exists():
         shutil.copy2(packet, evidence / "packet.md")
+    # F29 telemetry: read events live at .harness/ (neither out/ nor
+    # scratch/), so they must be folded explicitly or they are lost at
+    # teardown along with the only record of what was read.
+    events_path = worktree / ".harness" / "read_events.jsonl"
+    reads_out_of_packet = []
+    if events_path.exists():
+        shutil.copy2(events_path, evidence / "read_events.jsonl")
+        for line in events_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                reads_out_of_packet.append(json.loads(line))
+            except json.JSONDecodeError:
+                reads_out_of_packet.append({"unparseable": line[:200]})
+    result["reads_out_of_packet"] = reads_out_of_packet
     fence_path = worktree / ".harness" / "fence.json"
     record = {
         "record": "dispatch",
@@ -234,6 +303,11 @@ def harvest(ctx, *, evidence=None, started=None, finished=None) -> dict:
         "gate": result["gate"],
         "violations": violations,
         "artifacts": result["artifacts"],
+        # A distinct key on purpose: miss_log has counted request_mem gaps
+        # since 3a, and folding reads into it would put a schema step change
+        # into the ledger's miss column and call it behaviour.
+        "reads_out_of_packet": reads_out_of_packet,
+        "self_served_misses": len(reads_out_of_packet),
         "started": started,
         "finished": finished,
     }
@@ -286,6 +360,12 @@ def _cmd_harvest(args) -> int:
     return 1 if result["gate"] == "violated" else 0
 
 
+def _cmd_canary(args) -> int:
+    result = canary(args.worktree)
+    sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return 0 if result["wall"] == "live" else 1
+
+
 def _cmd_teardown(args) -> int:
     sys.stdout.write(json.dumps(teardown(args.worktree), sort_keys=True) + "\n")
     return 0
@@ -315,6 +395,10 @@ def main(argv=None) -> int:
     h.add_argument("--started", default=None)
     h.add_argument("--finished", default=None)
     h.set_defaults(func=_cmd_harvest)
+
+    c = sub.add_parser("canary", help="prove the fence refuses before spawning")
+    c.add_argument("worktree")
+    c.set_defaults(func=_cmd_canary)
 
     t = sub.add_parser("teardown", help="release the fence and remove the worktree")
     t.add_argument("worktree")

@@ -99,6 +99,85 @@ def test_diff_gate_catches_tester_writing_implementation(tmp_path):
     assert fence.check_diff(repo) == ["core/base.py"]
 
 
+def hook(payload, env=None):
+    return subprocess.run(
+        [sys.executable, str(HOOK)], input=json.dumps(payload),
+        capture_output=True, text=True,
+        env={**os.environ, **(env or {})},
+    )
+
+
+def test_f28_hook_binds_by_target_when_cwd_is_elsewhere(tmp_path):
+    # The subagent case: cwd is the parent repo, which carries no fence.
+    # Binding from the TARGET path is what makes the wall real for it.
+    ctx, repo = None, None
+    built, repo = fenced_fixture(tmp_path)
+    fence.write_fence(built, repo)
+    result = hook({
+        "cwd": str(PROJECT_ROOT),
+        "tool_name": "Write",
+        "tool_input": {"file_path": str(repo / "core" / "b.py")},
+    })
+    assert result.returncode == 2
+    assert "out of scope" in result.stderr
+
+
+def test_f29_tester_hard_read_denies_outside_and_allows_harness(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    plan = join.load_plan(specs)
+    index = build_index(repo, None)
+    resolved = join.resolve_writes(plan, index)
+    built = fence.build_fence(plan, index, resolved, "base", repo=repo, role="tester")
+    assert built["read_policy"] == "hard" and built["reads"] == [".harness"]
+    fence.write_fence(built, repo)
+    denied = hook({
+        "cwd": str(repo), "tool_name": "Read",
+        "tool_input": {"file_path": str(repo / "core" / "base.py")},
+    })
+    assert denied.returncode == 2 and "read fence" in denied.stderr
+    allowed = hook({
+        "cwd": str(repo), "tool_name": "Read",
+        "tool_input": {"file_path": str(repo / ".harness" / "packet.md")},
+    })
+    assert allowed.returncode == 0
+    pathless = hook({
+        "cwd": str(repo), "tool_name": "Grep", "tool_input": {"pattern": "def "},
+    })
+    assert pathless.returncode == 2
+
+
+def test_f29_executor_discloses_instead_of_denying(tmp_path):
+    built, repo = fenced_fixture(tmp_path)
+    assert built["read_policy"] == "disclose"
+    fence.write_fence(built, repo)
+    result = hook({
+        "cwd": str(repo), "tool_name": "Read",
+        "tool_input": {"file_path": str(repo / "core" / "b.py")},
+    })
+    assert result.returncode == 0  # reads are not forbidden
+    events = (repo / ".harness" / "read_events.jsonl").read_text().strip().splitlines()
+    assert len(events) == 1
+    assert json.loads(events[0])["path"] == "core/b.py"
+    # in-scope reads (own write scope, .harness) leave no event
+    hook({
+        "cwd": str(repo), "tool_name": "Read",
+        "tool_input": {"file_path": str(repo / "core" / "base.py")},
+    })
+    assert len((repo / ".harness" / "read_events.jsonl").read_text().strip().splitlines()) == 1
+
+
+def test_f29_bash_read_shape_is_disclosed_not_denied(tmp_path):
+    built, repo = fenced_fixture(tmp_path)
+    fence.write_fence(built, repo)
+    result = hook({
+        "cwd": str(repo), "tool_name": "Bash",
+        "tool_input": {"command": "sed -n '1,270p' core/b.py"},
+    })
+    assert result.returncode == 0
+    events = (repo / ".harness" / "read_events.jsonl").read_text()
+    assert "core/b.py" in events
+
+
 def test_write_fence_lands_in_harness_dir(tmp_path):
     built, repo = fenced_fixture(tmp_path)
     path = fence.write_fence(built, repo)
