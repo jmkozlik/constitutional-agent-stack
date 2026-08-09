@@ -294,6 +294,13 @@ class Conductor:
             # worker's own account of how it got there. The transcript is
             # archived the moment the worker returns, on every path.
             self.archive_transcript(node_id, context, outcome)
+            # Rung two: the fence flagged `.venv` — my own provisioning
+            # artifact — as a write outside the allowed set, and it was right
+            # to. Staging cleans up after itself rather than the fence
+            # growing an exemption: the worker is finished, the verify
+            # channel has served its purpose, and the diff the gate sees is
+            # then exactly the agent's work.
+            self.unstage(context)
             if outcome.get("returncode") != 0:
                 self.journal.write("stop", node=node_id, escalation="RUNNER_ERROR",
                                    detail=str(outcome.get("stderr"))[:400])
@@ -391,6 +398,11 @@ class Conductor:
                     "why": f"the verify command the packet promises exits "
                            f"{verify.returncode} in the worktree: {tail[0][:200]}"}
         return {"proven": True, "verify": tail[0]}
+
+    def unstage(self, context: dict) -> None:
+        link = Path(context["worktree"]) / ".venv"
+        if link.is_symlink():
+            link.unlink()
 
     def gate(self, node_id: str) -> dict:
         if self.gate_fn is not None:

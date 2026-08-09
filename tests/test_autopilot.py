@@ -477,3 +477,17 @@ def test_worker_classification_is_recorded_but_does_not_route(tmp_path):
         "non-blocking"
     assert autopilot.worker_class("REQUEST_MEM: the schema") == "unclassified"
     assert autopilot.worker_class("REQUEST_MEM: (blocking) the schema") == "blocking"
+
+
+def test_staging_removes_its_own_artifact_before_the_diff_gate(tmp_path):
+    """Rung two: the fence flagged the provisioning symlink as a write
+    outside the allowed set, and it was right to. The fix is that staging
+    cleans up, not that the fence learns an exemption — an exemption would
+    make every later violation arguable."""
+    boss = conductor(tmp_path)
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / ".venv").symlink_to(tmp_path)
+    boss.unstage({"worktree": worktree})
+    assert not (worktree / ".venv").exists()
+    assert list(worktree.iterdir()) == []
