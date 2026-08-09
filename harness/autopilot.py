@@ -515,28 +515,45 @@ class Conductor:
                 self.journal.write("note", detail=f"vault entry not filed: {exc}")
         return summary
 
-    def run_single(self, node_id: str) -> dict:
-        """One node, nothing downstream. The ladder's first rungs."""
+    def run_single(self, spec: str) -> dict:
+        """One node, or a named set of them in parallel. The ladder's rungs.
+
+        Downstream is deliberately not walked: a rung proves the machinery
+        on nodes the operator chose, and routing past them is the full walk's
+        job.
+        """
+        node_ids = [n.strip() for n in spec.split(",") if n.strip()]
         self.check_authorization()
         if not self.dry_run:
             self.calibrate()
-        self.journal.write("run_start", detail=f"single node {node_id}",
-                           levels=[["single", [node_id]]], dry_run=self.dry_run)
-        state = self.run_node(node_id)
-        if state == "stopped":
-            self.stopped.add(node_id)     # no line to route: nothing downstream runs
-        elif state == "completed":
-            self.completed.add(node_id)
-        self.journal.write("run_end", detail=f"{node_id}: {state}")
+        self.journal.write("run_start", detail=f"rung: {', '.join(node_ids)}",
+                           levels=[["rung", node_ids]], dry_run=self.dry_run)
+        with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(self.max_parallel, len(node_ids))) as pool:
+            futures = {pool.submit(self.run_node, n): n for n in node_ids}
+            for future in concurrent.futures.as_completed(futures):
+                node_id = futures[future]
+                try:
+                    state = future.result()
+                except Exception as exc:
+                    self.journal.write("stop", node=node_id,
+                                       escalation="RUNNER_ERROR",
+                                       detail=f"{type(exc).__name__}: {exc}")
+                    state = "stopped"
+                (self.stopped if state == "stopped" else self.completed).add(node_id) \
+                    if state in ("stopped", "completed") else None
+        self.journal.write("run_end", detail=f"{len(self.completed)} completed, "
+                                             f"{len(self.stopped)} stopped")
         summary = self.summary()
         if not self.dry_run and self.run_id:
             target = promote_journal(self.repo, self.journal, self.run_id)
             paths = [str(target.relative_to(self.repo) / "journal.jsonl")]
-            node_dir = target / node_id
-            if node_dir.exists():
-                paths += [str(p.relative_to(self.repo))
-                          for p in sorted(node_dir.rglob("*")) if p.is_file()]
-            commit_evidence(self.repo, paths, dispatch_id=node_id,
+            for node_id in node_ids:
+                node_dir = target / node_id
+                if node_dir.exists():
+                    paths += [str(p.relative_to(self.repo))
+                              for p in sorted(node_dir.rglob("*")) if p.is_file()]
+            commit_evidence(self.repo, paths, dispatch_id=",".join(node_ids),
                             record_hash=self.authorized, journal=self.journal,
                             branch=run_branch(self.repo, self.run_id))
             try:
