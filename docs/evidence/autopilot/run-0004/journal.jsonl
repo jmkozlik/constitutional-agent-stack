@@ -1,0 +1,17 @@
+{"data": {"inert": false, "model": "grok-4"}, "detail": "seeded-gutted packet -> insufficient", "escalation": "", "kind": "calibration", "node": "", "seq": 1}
+{"data": {"dry_run": false, "levels": [["0", ["gitio", "symbol_table"]], ["1", ["reference_map"]], ["2", ["unresolved_sites"]], ["3", ["index_assembly"]], ["4", ["affected_symbols"]], ["5", ["analyzer_cli"]]]}, "detail": "plan 66e648664216", "escalation": "", "kind": "run_start", "node": "", "seq": 2}
+{"data": {"nodes": ["gitio", "symbol_table"]}, "detail": "level 0", "escalation": "", "kind": "level", "node": "", "seq": 3}
+{"data": {"blocking": 0}, "detail": "executor:symbol_table=sufficient, executor:affected_symbols=sufficient, tester:affected_symbols=sufficient", "escalation": "", "kind": "gate", "node": "gitio", "seq": 4}
+{"data": {"packet_hash": "f9685c061f85"}, "detail": "/Users/rokko/experiments/.lex-dispatches/gitio", "escalation": "", "kind": "dispatch", "node": "gitio", "seq": 5}
+{"because": "the agent could not be run to completion", "data": {}, "detail": "AttributeError: 'str' object has no attribute 'get'", "escalation": "RUNNER_ERROR", "kind": "stop", "node": "gitio", "seq": 6}
+{"data": {}, "detail": "line stopped: affected_symbols, analyzer_cli, index_assembly", "escalation": "", "kind": "stop_routing", "node": "gitio", "seq": 7}
+{"data": {"blocking": 0}, "detail": "executor:symbol_table=sufficient, executor:affected_symbols=sufficient, tester:affected_symbols=sufficient", "escalation": "", "kind": "gate", "node": "symbol_table", "seq": 8}
+{"data": {"packet_hash": "f6e97dc1c3d5"}, "detail": "/Users/rokko/experiments/.lex-dispatches/symbol_table", "escalation": "", "kind": "dispatch", "node": "symbol_table", "seq": 9}
+{"because": "the agent could not be run to completion", "data": {}, "detail": "AttributeError: 'str' object has no attribute 'get'", "escalation": "RUNNER_ERROR", "kind": "stop", "node": "symbol_table", "seq": 10}
+{"data": {}, "detail": "line stopped: affected_symbols, analyzer_cli, index_assembly, reference_map, unresolved_sites", "escalation": "", "kind": "stop_routing", "node": "symbol_table", "seq": 11}
+{"data": {}, "detail": "an ancestor stopped this line", "escalation": "", "kind": "skip", "node": "reference_map", "seq": 12}
+{"data": {}, "detail": "an ancestor stopped this line", "escalation": "", "kind": "skip", "node": "unresolved_sites", "seq": 13}
+{"data": {}, "detail": "an ancestor stopped this line", "escalation": "", "kind": "skip", "node": "index_assembly", "seq": 14}
+{"data": {}, "detail": "an ancestor stopped this line", "escalation": "", "kind": "skip", "node": "affected_symbols", "seq": 15}
+{"data": {}, "detail": "an ancestor stopped this line", "escalation": "", "kind": "skip", "node": "analyzer_cli", "seq": 16}
+{"data": {}, "detail": "0 completed, 7 stopped", "escalation": "", "kind": "run_end", "node": "", "seq": 17}
