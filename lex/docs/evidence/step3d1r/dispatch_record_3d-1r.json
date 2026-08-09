@@ -1,0 +1,70 @@
+{
+  "artifacts": [
+    "harvest-out/attestation.md",
+    "harvest-out/defects.md",
+    "harvest-scratch/delta_after.txt",
+    "harvest-scratch/handoff.md",
+    "harvest-scratch/mkfixture.py.txt",
+    "harvest-scratch/probe_after.py.txt",
+    "harvest-scratch/probe_after_out.txt",
+    "harvest-scratch/probe_before.py.txt",
+    "harvest-scratch/probe_before_out.txt",
+    "harvest-scratch/real_imports_sample.txt",
+    "harvest-scratch/real_origins_check.txt",
+    "harvest-scratch/real_run1.json",
+    "harvest-scratch/real_run2.json",
+    "harvest-scratch/real_run3.json",
+    "harvest-scratch/repo/app/alias.py.txt",
+    "harvest-scratch/repo/app/bare.py.txt",
+    "harvest-scratch/repo/app/broken.py.txt",
+    "harvest-scratch/repo/app/constant.py.txt",
+    "harvest-scratch/repo/app/direct.py.txt",
+    "harvest-scratch/repo/app/empty.py.txt",
+    "harvest-scratch/repo/app/facade.py.txt",
+    "harvest-scratch/repo/app/starred.py.txt",
+    "harvest-scratch/repo/app/submod.py.txt",
+    "harvest-scratch/repo/app/viastar.py.txt",
+    "harvest-scratch/repo/pkg/__init__.py.txt",
+    "harvest-scratch/repo/pkg/impl.py.txt",
+    "harvest-scratch/repo/pkg/star_src.py.txt",
+    "harvest-scratch/suite_after.txt",
+    "harvest-scratch/suite_baseline.txt"
+  ],
+  "commit": "f146eb16d654cc25fdba3858ea6b393cc833b188",
+  "delta_at_dispatch": "delta: 1 outstanding",
+  "dispatch_id": "3d-1r",
+  "dispatch_plan_hash": "66e648664216",
+  "fence_allowed": {
+    "analyzer/indexer.py": "exists@8a42ca02"
+  },
+  "fence_sha256": "e4ec7226eb90158fc96110e9af52754be11631112ee98492e9a37e475110b858",
+  "finished": "2026-08-08T20:35:27-0400",
+  "gate": "clean",
+  "generator": "harness.dispatch/1",
+  "node": "index_assembly",
+  "packet_delivery": "file (.harness/packet.md, sha256 7a44feaf5c466b22\u2026)",
+  "packet_hash": "c8242f97dc1c",
+  "reads_out_of_packet": [
+    {
+      "path": "analyzer/refs.py",
+      "tool": "Read",
+      "ts": 1786220566
+    },
+    {
+      "path": "analyzer/refs.py",
+      "tool": "Read",
+      "ts": 1786220589
+    },
+    {
+      "path": "analyzer/refs.py",
+      "tool": "Read",
+      "ts": 1786220594
+    }
+  ],
+  "record": "dispatch",
+  "role": "executor",
+  "self_served_misses": 3,
+  "spec_plan_hash": "66e648664216",
+  "started": "2026-08-08T20:12:00-0400",
+  "violations": []
+}

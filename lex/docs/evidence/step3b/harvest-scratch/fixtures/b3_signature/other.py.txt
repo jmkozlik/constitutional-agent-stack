@@ -1,0 +1,9 @@
+from mod import target
+
+
+def caller_one():
+    return target(1)
+
+
+def caller_two():
+    return target(2)

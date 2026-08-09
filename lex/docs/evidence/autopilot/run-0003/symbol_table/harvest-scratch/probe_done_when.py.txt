@@ -1,0 +1,87 @@
+"""Probes for the two done_when bullets, observed through extract_symbols.
+
+Bullet 1: Reformatting whitespace does not change the body hash.
+Bullet 2: Ranges are recomputed per commit, never stored as identity.
+"""
+from analyzer.symbols import extract_symbols
+
+# --- Bullet 1: whitespace reformat, identical semantics -------------------
+
+ORIGINAL = b'''\
+class Config:
+    limit: int = 10
+
+    def scaled(self, factor: int = 2) -> int:
+        total = self.limit * factor
+        if total > 100:
+            total = 100
+        return total
+
+
+def helper(a, b=1, *args, key=None, **kw):
+    """Docstring stays."""
+    return a + b
+'''
+
+# Same code, whitespace-only reformat: blank lines added/removed, spacing
+# around operators/commas changed, indentation widened to 8, one statement
+# wrapped across lines with a continuation, trailing spaces added.
+REFORMATTED = b'''\
+class Config:
+        limit :int=10
+        def scaled( self,factor:int=2 )->int:
+
+
+                total=self.limit*factor
+                if total>100:
+                        total = (
+                            100
+                        )
+                return total
+
+def helper(a,b=1,*args,key=None,**kw):
+        """Docstring stays."""
+
+        return (a
+                + b)
+'''
+
+a = {r["path"]: r for r in extract_symbols(ORIGINAL, "src/config.py")}
+b = {r["path"]: r for r in extract_symbols(REFORMATTED, "src/config.py")}
+
+print("== bullet 1: body_hash under whitespace reformat ==")
+assert a.keys() == b.keys(), (a.keys(), b.keys())
+for path in sorted(a):
+    same = a[path]["body_hash"] == b[path]["body_hash"]
+    print(f"{path}: original={a[path]['body_hash']} reformatted={b[path]['body_hash']} equal={same}")
+    assert same, path
+
+# --- Bullet 2: ranges change, identity hashes do not -----------------------
+
+SHIFTED = b'\n' * 37 + ORIGINAL  # same defs, 37 lines lower (a new "commit")
+
+c = {r["path"]: r for r in extract_symbols(SHIFTED, "src/config.py")}
+
+print("\n== bullet 2: ranges vs identity across a shift ==")
+assert a.keys() == c.keys()
+for path in sorted(a):
+    ra, rc = a[path], c[path]
+    ident_same = all(ra[k] == rc[k] for k in ("sig_hash", "body_hash", "decor_hash"))
+    print(
+        f"{path}: lines {ra['start_line']}-{ra['end_line']} -> "
+        f"{rc['start_line']}-{rc['end_line']}; "
+        f"sig/body/decor hashes unchanged={ident_same}"
+    )
+    assert ra["start_line"] != rc["start_line"], path
+    assert ident_same, path
+
+# Ranges are recomputed on every extraction call (pure function of the
+# source handed in) — nothing is carried over between calls.
+again = {r["path"]: r for r in extract_symbols(SHIFTED, "src/config.py")}
+assert again == c
+print("\nre-extraction of shifted source reproduces ranges from source alone: True")
+
+# And no record field mixes a line number into an identity hash: the hash
+# inputs are canonical signature / unparsed body / unparsed decorators only.
+print("record fields:", sorted(a["src.config.helper"].keys()))
+print("ALL PROBES PASSED")

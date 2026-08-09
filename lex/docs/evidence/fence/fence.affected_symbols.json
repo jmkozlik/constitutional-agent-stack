@@ -1,0 +1,9 @@
+{
+  "allowed": {
+    "analyzer/affected.py": "exists@fa5af16b"
+  },
+  "node": "affected_symbols",
+  "packet_hash": null,
+  "plan": "c98fb664a54f",
+  "version": 1
+}

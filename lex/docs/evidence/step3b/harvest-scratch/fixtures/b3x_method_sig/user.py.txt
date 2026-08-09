@@ -1,0 +1,10 @@
+from mod import Service
+
+
+def use_one():
+    s = Service()
+    return s.handle(1)
+
+
+def use_two():
+    return Service().handle(2)

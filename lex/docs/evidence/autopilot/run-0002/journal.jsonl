@@ -1,0 +1,15 @@
+{"data": {"inert": false, "model": "grok-4"}, "detail": "seeded-gutted packet -> insufficient", "escalation": "", "kind": "calibration", "node": "", "seq": 1}
+{"data": {"dry_run": false, "levels": [["rung", ["gitio", "symbol_table"]]]}, "detail": "rung: gitio, symbol_table", "escalation": "", "kind": "run_start", "node": "", "seq": 2}
+{"data": {"blocking": 0}, "detail": "executor:symbol_table=sufficient, executor:affected_symbols=sufficient, tester:affected_symbols=sufficient", "escalation": "", "kind": "gate", "node": "symbol_table", "seq": 3}
+{"data": {"packet_hash": "6d7c0c2fe44e"}, "detail": "/Users/rokko/experiments/.lex-dispatches/symbol_table", "escalation": "", "kind": "dispatch", "node": "symbol_table", "seq": 4}
+{"data": {"resolved_in_worktree": true}, "detail": "USING interpreter /Users/rokko/experiments/lex/.venv/bin/python\nUSING analyzer /Users/rokko/experiments/.lex-dispatches/symbol_table/analyzer/gitio.py", "escalation": "", "kind": "preflight", "node": "symbol_table", "seq": 5}
+{"data": {"blocking": 0}, "detail": "executor:symbol_table=sufficient, executor:affected_symbols=sufficient, tester:affected_symbols=sufficient", "escalation": "", "kind": "gate", "node": "gitio", "seq": 6}
+{"data": {"packet_hash": "e6917f70b492"}, "detail": "/Users/rokko/experiments/.lex-dispatches/gitio", "escalation": "", "kind": "dispatch", "node": "gitio", "seq": 7}
+{"data": {"resolved_in_worktree": true}, "detail": "USING interpreter /Users/rokko/experiments/lex/.venv/bin/python\nUSING analyzer /Users/rokko/experiments/.lex-dispatches/gitio/analyzer/gitio.py", "escalation": "", "kind": "preflight", "node": "gitio", "seq": 8}
+{"data": {}, "detail": ".venv/bin/python -m pytest -q -> exit 0: 440 passed, 1 skipped, 1 warning in 27.25s", "escalation": "", "kind": "stage_verify", "node": "symbol_table", "seq": 9}
+{"data": {}, "detail": ".venv/bin/python -m pytest -q -> exit 0: 440 passed, 1 skipped, 1 warning in 26.61s", "escalation": "", "kind": "stage_verify", "node": "gitio", "seq": 10}
+{"data": {}, "detail": "docs/evidence/autopilot/run-0002/symbol_table/worker-transcript.txt", "escalation": "", "kind": "transcript", "node": "symbol_table", "seq": 11}
+{"because": "the diff gate found a write outside the fence", "data": {}, "detail": ".venv", "escalation": "FENCE_VIOLATION", "kind": "stop", "node": "symbol_table", "seq": 12}
+{"data": {}, "detail": "docs/evidence/autopilot/run-0002/gitio/worker-transcript.txt", "escalation": "", "kind": "transcript", "node": "gitio", "seq": 13}
+{"because": "the diff gate found a write outside the fence", "data": {}, "detail": ".venv", "escalation": "FENCE_VIOLATION", "kind": "stop", "node": "gitio", "seq": 14}
+{"data": {}, "detail": "0 completed, 2 stopped", "escalation": "", "kind": "run_end", "node": "", "seq": 15}

@@ -1,0 +1,50 @@
+"""Implementation module."""
+
+# --- a comment that did not exist at c1 ---------------------------------
+
+import functools
+
+
+class Widget:
+    """A widget."""
+
+    size: int = 3
+
+    label: str
+
+    @property
+    def value(self):
+
+        return self._v
+
+    @value.setter
+    def value(self, v):
+
+        self._v = v
+
+    @functools.lru_cache
+    def compute(self, a, b=2, *rest, key=None, **kw) -> int:
+        total = a + b
+
+        def inner(x):
+
+            return x * total
+
+        return inner(len(rest))
+
+
+class Gadget(Widget, metaclass=type):
+
+    def poke(self):
+
+        return 1
+
+
+def helper(name: str, /, count: int = 1) -> str:
+
+    return f"{name}:{count + 1}"
+
+
+async def fetch(url: str) -> bytes:
+
+    return url.encode()

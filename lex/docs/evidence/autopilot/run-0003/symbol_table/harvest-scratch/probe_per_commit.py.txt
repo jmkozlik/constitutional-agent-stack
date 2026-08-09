@@ -1,0 +1,37 @@
+"""Bullet 2, per-commit form: extract the same file at two real commits.
+
+The function moves between commits; ranges come out different because they
+are recomputed from each commit's source, while the identity hashes match.
+"""
+import subprocess
+
+from analyzer.symbols import extract_symbols
+
+REPO = ".harness/scratch/gitfix"
+
+
+def git(*args):
+    return subprocess.run(
+        ["git", "-C", REPO, *args], check=True, capture_output=True
+    ).stdout
+
+
+def at_commit(sha):
+    src = git("show", f"{sha}:mod.py")
+    return {r["path"]: r for r in extract_symbols(src, "mod.py")}
+
+
+shas = git("rev-list", "--reverse", "HEAD").decode().split()
+first, second = shas
+
+for sha, recs in ((first, at_commit(first)), (second, at_commit(second))):
+    r = recs["mod.target"]
+    print(
+        f"commit {sha[:7]}: mod.target lines {r['start_line']}-{r['end_line']} "
+        f"sig_hash={r['sig_hash']} body_hash={r['body_hash']} decor_hash={r['decor_hash']}"
+    )
+
+r1, r2 = at_commit(first)["mod.target"], at_commit(second)["mod.target"]
+assert (r1["start_line"], r1["end_line"]) != (r2["start_line"], r2["end_line"])
+assert all(r1[k] == r2[k] for k in ("sig_hash", "body_hash", "decor_hash"))
+print("ranges differ across commits; identity hashes identical: True")

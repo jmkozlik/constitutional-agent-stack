@@ -1,0 +1,110 @@
+"""Validation probes for the gitio done_when bullets. Run from the worktree root."""
+
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from analyzer.gitio import (
+    GitError,
+    changed_files,
+    list_py_files,
+    read_files,
+    resolve_commit,
+)
+
+SCRATCH = Path(".harness/scratch")
+REPO = SCRATCH / "fixture-repo"
+BARE = SCRATCH / "fixture-bare.git"
+
+GIT = ["git", "-c", "user.email=t@t.t", "-c", "user.name=t"]
+
+
+def sh(*args, cwd):
+    subprocess.run([*GIT, *args], cwd=cwd, check=True, capture_output=True)
+
+
+def build():
+    for p in (REPO, BARE):
+        if p.exists():
+            shutil.rmtree(p)
+    REPO.mkdir(parents=True)
+    sh("init", "-q", cwd=REPO)
+    (REPO / "src").mkdir()
+    (REPO / "src" / "a.py").write_text("line1\nline2\nline3\n")
+    (REPO / "src" / "notes.txt").write_text("not python\n")
+    (REPO / "top.py").write_text("x = 1\n")
+    sh("add", "-A", cwd=REPO)
+    sh("commit", "-q", "-m", "c1", cwd=REPO)
+    c1 = subprocess.run(
+        [*GIT, "rev-parse", "HEAD"], cwd=REPO, check=True, capture_output=True
+    ).stdout.decode().strip()
+    # pure rename, content byte-identical (the case rename detection would collapse)
+    sh("mv", "src/a.py", "src/renamed.py", cwd=REPO)
+    sh("commit", "-q", "-m", "c2 rename", cwd=REPO)
+    c2 = subprocess.run(
+        [*GIT, "rev-parse", "HEAD"], cwd=REPO, check=True, capture_output=True
+    ).stdout.decode().strip()
+    # bare clone: no worktree exists anywhere for this copy of the objects
+    subprocess.run(
+        [*GIT, "clone", "-q", "--bare", str(REPO), str(BARE)],
+        check=True, capture_output=True,
+    )
+    return c1, c2
+
+
+def main():
+    c1, c2 = build()
+    print(f"c1={c1}")
+    print(f"c2={c2}")
+
+    print("\n--- bullet 1: answers from git objects, never a checkout ---")
+    print(f"bare repo has no worktree: is_bare="
+          + subprocess.run([*GIT, "-C", str(BARE), "rev-parse", "--is-bare-repository"],
+                           capture_output=True, check=True).stdout.decode().strip())
+    print(f"list_py_files(BARE, c1) = {list_py_files(BARE, c1)}")
+    print(f"read_files(BARE, c1, ['src/a.py']) = {read_files(BARE, c1, ['src/a.py'])}")
+    # non-bare repo: dirty the worktree, old rev must still answer with committed bytes
+    (REPO / "top.py").write_text("DIRTY WORKTREE CONTENT\n")
+    got = read_files(REPO, c1, ["top.py"])["top.py"]
+    print(f"worktree top.py now: {(REPO / 'top.py').read_text()!r}")
+    print(f"read_files(REPO, c1)['top.py'] = {got!r}")
+    assert got == b"x = 1\n", "read_files leaked worktree state"
+    assert "src/renamed.py" not in list_py_files(REPO, c1), "list_py_files leaked later state"
+    print(f"list_py_files(REPO, c1) = {list_py_files(REPO, c1)}  (renamed.py absent at c1: OK)")
+
+    print("\n--- bullet 2: rename surfaces as delete + add, never a rename ---")
+    detected = subprocess.run(
+        [*GIT, "-C", str(REPO), "diff", "--name-status", "-M", c1, c2],
+        capture_output=True, check=True).stdout.decode().strip()
+    print(f"git itself with -M sees a rename: {detected!r}")
+    cf = changed_files(REPO, c1, c2)
+    print(f"changed_files(REPO, c1, c2) = {cf}")
+    assert set(cf) == {"src/a.py", "src/renamed.py"}, "expected both old and new path keys"
+    old_side, new_side = cf["src/a.py"]
+    assert old_side == [(1, 3)] and new_side == [], "old path must be pure delete"
+    old_side, new_side = cf["src/renamed.py"]
+    assert old_side == [] and new_side == [(1, 3)], "new path must be pure add"
+    print("old path is pure delete, new path is pure add: OK")
+
+    print("\n--- bullet 3: failing git command raises GitError, never silent empty ---")
+    for label, fn in [
+        ("resolve_commit bad rev", lambda: resolve_commit(REPO, "no-such-rev")),
+        ("list_py_files bad rev", lambda: list_py_files(REPO, "no-such-rev")),
+        ("changed_files bad rev", lambda: changed_files(REPO, "no-such-rev", c2)),
+        ("read_files missing path", lambda: read_files(REPO, c1, ["nope.py"])),
+        ("resolve_commit missing dir", lambda: resolve_commit(SCRATCH / "no-such-dir", "HEAD")),
+    ]:
+        try:
+            result = fn()
+        except GitError as e:
+            print(f"{label}: GitError: {e}")
+        else:
+            print(f"{label}: !! NO ERROR, returned {result!r}")
+            sys.exit(1)
+
+    print("\nALL PROBES PASSED")
+
+
+if __name__ == "__main__":
+    main()

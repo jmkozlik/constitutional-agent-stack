@@ -1,0 +1,61 @@
+{
+  "artifacts": [
+    "harvest-out/attestation.md",
+    "harvest-out/defects.md",
+    "harvest-scratch/handoff.md",
+    "harvest-scratch/probe_mechanism.py.txt",
+    "harvest-scratch/probe_mechanism_out.txt",
+    "harvest-scratch/tests/conftest.py.txt",
+    "harvest-scratch/tests/test_affected_errors.py.txt",
+    "harvest-scratch/tests/test_affected_guarantees.py.txt",
+    "harvest-scratch/tests/test_affected_surface.py.txt",
+    "harvest-scratch/verbose_out.txt"
+  ],
+  "commit": "8bbb99ffd082334af26cd0904f425fe912dcf3f0",
+  "delta_at_dispatch": "delta: 1 outstanding",
+  "dispatch_id": "3d-2",
+  "dispatch_plan_hash": "66e648664216",
+  "fence_allowed": {
+    "analyzer/affected.py": "exists@fa5af16b"
+  },
+  "fence_sha256": "b502f0782ccecceb1b0471a6146d95fa5f66b3fb9d23bda6876589b5b9429a94",
+  "finished": "2026-08-08T21:17:15-0400",
+  "gate": "clean",
+  "generator": "harness.dispatch/1",
+  "node": "affected_symbols",
+  "packet_delivery": "file (.harness/packet.md, sha256 90c3f487f3787536\u2026)",
+  "packet_hash": "1139fffde3e8",
+  "reads_out_of_packet": [
+    {
+      "path": "docs/evidence/step3t/harvest-out/tester_report.md",
+      "tool": "Read",
+      "ts": 1786223249
+    },
+    {
+      "path": "docs/evidence/step3t/harvest-out/tests/conftest.py.txt",
+      "tool": "Read",
+      "ts": 1786223250
+    },
+    {
+      "path": "analyzer/modpath.py",
+      "tool": "Read",
+      "ts": 1786223326
+    },
+    {
+      "path": "analyzer/indexer.py",
+      "tool": "Read",
+      "ts": 1786223327
+    },
+    {
+      "path": "analyzer/indexer.py",
+      "tool": "Read",
+      "ts": 1786223339
+    }
+  ],
+  "record": "dispatch",
+  "role": "executor",
+  "self_served_misses": 5,
+  "spec_plan_hash": "66e648664216",
+  "started": "2026-08-08T20:47:00-0400",
+  "violations": []
+}

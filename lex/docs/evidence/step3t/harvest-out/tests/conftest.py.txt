@@ -1,0 +1,222 @@
+"""Shared machinery for the affected_symbols contract suite.
+
+Everything here is derived from the node contract alone.  The only names
+this suite may reach for are the declared surface:
+
+    analyzer.affected.compute_affected(repo, old_rev, new_rev) -> AffectedReport
+    analyzer.affected.render_report(report, out=sys.stdout) -> None
+    analyzer.affected.AffectedReport(old, new, rows)   [+ .has_error]
+    analyzer.affected.Row(path, category, detail, callers, error)
+                                                      [+ .callers_unknowable]
+
+Two things the contract does not pin down are handled defensively rather
+than guessed at, because guessing an interface is worse than tolerating
+both readings:
+
+  * caller reference records are described by their fields
+    (file/line/in_symbol/kind/args) but not by their access shape, so
+    ``ref()`` accepts either a mapping or an attribute-carrying object;
+  * ``callers_unknowable`` is described as "set"/"unset", which admits
+    both a False value and an absent attribute, so ``unknowable()``
+    reads it through a default.
+
+Neither accessor invents a surface: each spans exactly the encodings the
+contract's own wording leaves open.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+# The package under test lives at the worktree root, three levels above
+# this file.  Prepending it keeps the suite runnable from any cwd and
+# guarantees the worktree's analyzer wins over any installed copy.
+_WORKTREE_ROOT = Path(__file__).resolve().parents[3]
+if str(_WORKTREE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_WORKTREE_ROOT))
+
+
+# --------------------------------------------------------------------------
+# fixture repositories
+# --------------------------------------------------------------------------
+
+_GIT_IDENTITY = [
+    "-c", "user.email=t@t.t",
+    "-c", "user.name=t",
+    "-c", "commit.gpgsign=false",
+]
+
+
+def _git(repo: Path, *args: str) -> str:
+    done = subprocess.run(
+        ["git", *_GIT_IDENTITY, *args],
+        cwd=str(repo), capture_output=True, text=True,
+    )
+    if done.returncode != 0:
+        raise RuntimeError(
+            f"git {' '.join(args)} failed in {repo}:\n{done.stdout}\n{done.stderr}"
+        )
+    return done.stdout
+
+
+def build_repo(root: Path, revisions: list[dict[str, str]]) -> list[str]:
+    """Create a git repository at *root*, one commit per revision.
+
+    Each revision is the COMPLETE file set at that commit: a path present
+    in one revision and absent from the next is deleted there.  Returns
+    the resolved sha of each commit, in order.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    _git(root, "init", "-q")
+    shas: list[str] = []
+    previous: set[str] = set()
+    for index, files in enumerate(revisions):
+        for gone in sorted(previous - set(files)):
+            (root / gone).unlink()
+        for rel, source in files.items():
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source)
+        _git(root, "add", "-A")
+        _git(root, "commit", "-q", "-m", f"rev{index}", "--allow-empty")
+        shas.append(_git(root, "rev-parse", "HEAD").strip())
+        previous = set(files)
+    return shas
+
+
+@pytest.fixture
+def two_rev_repo(tmp_path):
+    """Build a repo from an old and a new file set; return (repo, old, new)."""
+
+    def _make(old_files: dict[str, str], new_files: dict[str, str], name="repo"):
+        root = tmp_path / name
+        old_sha, new_sha = build_repo(root, [old_files, new_files])
+        return root, old_sha, new_sha
+
+    return _make
+
+
+def line_of(source: str, needle: str) -> int:
+    """1-based line number of the first line of *source* containing *needle*."""
+    for number, text in enumerate(source.splitlines(), start=1):
+        if needle in text:
+            return number
+    raise AssertionError(f"{needle!r} not present in fixture source")
+
+
+# --------------------------------------------------------------------------
+# report / row readers
+# --------------------------------------------------------------------------
+
+CATEGORIES = {
+    "signature", "body", "decorators", "moved", "deleted", "added", "unknown",
+}
+
+CHANGE_CATEGORIES = {"signature", "body", "decorators"}
+
+
+def analyze(repo, old_rev: str, new_rev: str):
+    from analyzer.affected import compute_affected
+
+    return compute_affected(repo, old_rev, new_rev)
+
+
+def paths(report) -> list[str]:
+    return [row.path for row in report.rows]
+
+
+def rows_for(report, path: str) -> list:
+    return [row for row in report.rows if row.path == path]
+
+
+def row_for(report, path: str):
+    """The single row for *path*, with the full path list on failure."""
+    found = rows_for(report, path)
+    assert len(found) == 1, (
+        f"expected exactly one row for {path!r}, got {len(found)}; "
+        f"report carries {paths(report)}"
+    )
+    return found[0]
+
+
+def rows_ending(report, suffix: str) -> list:
+    return [row for row in report.rows if row.path.endswith(suffix)]
+
+
+def categories_of(report) -> set[str]:
+    return {row.category for row in report.rows}
+
+
+def unknowable(row) -> bool:
+    """Read Row.callers_unknowable, which the contract requires to exist.
+
+    The attribute is an [authored] line against a [seeded] field list, and
+    the ratified reading is that the authored line leads: the attribute is
+    contract and is due to exist.  Reading it through a default would let
+    an absent attribute masquerade as an honest "unset", so its absence is
+    reported here rather than swallowed.
+    """
+    value = getattr(row, "callers_unknowable", _MISSING)
+    assert value is not _MISSING, (
+        "Row carries no callers_unknowable attribute; the contract declares "
+        f"it as a Row attribute, so 'unset' cannot be observed. row was {row!r}"
+    )
+    return bool(value)
+
+
+_MISSING = object()
+
+
+def ref(record, field: str, default=_MISSING):
+    """Read *field* off a caller reference record, mapping or object alike."""
+    try:
+        return record[field]
+    except (TypeError, KeyError, IndexError):
+        pass
+    value = getattr(record, field, _MISSING)
+    if value is _MISSING:
+        if default is not _MISSING:
+            return default
+        raise AssertionError(
+            f"caller record {record!r} carries no field {field!r}"
+        )
+    return value
+
+
+def caller_sites(row) -> set[tuple[str, int]]:
+    """(basename, line) for every caller record on *row*, of any kind.
+
+    The contract types ``file`` as a str but does not say whether it is
+    repo-relative or absolute, so comparisons go through the basename.
+    """
+    return {
+        (Path(str(ref(record, "file"))).name, int(ref(record, "line")))
+        for record in row.callers
+    }
+
+
+def call_sites(row) -> set[tuple[str, int]]:
+    """(basename, line) for the caller records of kind 'call'.
+
+    ``kind: call | name`` is part of the record contract, so a row may
+    legitimately carry name references - an import binding, a table entry -
+    alongside its call sites.  Guarantees phrased about *call sites* are
+    read against this subset.
+    """
+    return {
+        (Path(str(ref(record, "file"))).name, int(ref(record, "line")))
+        for record in row.callers
+        if ref(record, "kind") == "call"
+    }
+
+
+def records_of_kind(row, kind: str) -> list:
+    return [record for record in row.callers if ref(record, "kind") == kind]
+
+
+def caller_symbols(row) -> list[str]:
+    return [str(ref(record, "in_symbol")) for record in row.callers]

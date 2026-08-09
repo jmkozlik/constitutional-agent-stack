@@ -1,0 +1,122 @@
+"""Validation probe for the reference_map done_when bullets.
+
+Runs entirely through the surface: ImportTable.from_module, Resolver,
+collect_references. Each section prints the evidence it checked and
+raises AssertionError on failure; exit 0 means every check held.
+"""
+
+import ast
+from collections import defaultdict
+
+from analyzer.modpath import module_path
+from analyzer.refs import ImportTable, Resolver, collect_references
+from analyzer.symbols import extract_symbols
+
+
+def build(files: dict[str, str]):
+    trees, symbols, tables = {}, defaultdict(list), {}
+    for rel, src in files.items():
+        mod = module_path(rel)
+        trees[rel] = (ast.parse(src), mod, rel.endswith("__init__.py"))
+        for record in extract_symbols(src.encode(), rel):
+            symbols[record["path"]].append(record)
+    for rel, (tree, mod, is_pkg) in trees.items():
+        tables[mod] = ImportTable.from_module(tree, mod, is_package=is_pkg)
+    resolver = Resolver(dict(symbols), tables)
+    refs = defaultdict(list)
+    unresolved = []
+    for rel in sorted(trees):
+        tree, mod, is_pkg = trees[rel]
+        found, unres = collect_references(tree, rel, mod, resolver)
+        for target, record in found:
+            refs[target].append(record)
+        unresolved.extend(unres)
+    return refs, unresolved
+
+
+FILES = {
+    "src/config.py": (
+        "def load_settings(path, strict=False):\n"
+        "    return {}\n"
+        "\n"
+        "\n"
+        "class Loader:\n"
+        "    def load(self):\n"
+        "        return 1\n"
+    ),
+    "src/app.py": (
+        "from src.config import load_settings\n"
+        "\n"
+        "SETTINGS = load_settings('app.toml')\n"           # line 3, module level
+        "\n"
+        "\n"
+        "def boot():\n"
+        "    p = compute_path()\n"
+        "    flag = True\n"
+        "    return load_settings(p, strict=flag)\n"        # line 9, in function
+        "\n"
+        "\n"
+        "def compute_path():\n"
+        "    return 'x'\n"
+        "\n"
+        "\n"
+        "class App:\n"
+        "    def start(self):\n"
+        "        self.cfg = load_settings(compute_path(), strict=not False)\n"  # line 18
+        "\n"
+        "\n"
+        "def poke(worker):\n"
+        "    worker.load()\n"                               # line 22, opaque receiver
+    ),
+}
+
+
+def main():
+    refs, unresolved = build(FILES)
+
+    # -- Bullet 1: every caller, with file, line, enclosing symbol ------------
+    callers = refs["src.config.load_settings"]
+    call_sites = [r for r in callers if r["kind"] == "call"]
+    got = {(r["file"], r["line"], r["in_symbol"]) for r in call_sites}
+    expected = {
+        ("src/app.py", 3, "src.app"),
+        ("src/app.py", 9, "src.app.boot"),
+        ("src/app.py", 18, "src.app.App.start"),
+    }
+    print("bullet 1 — call sites of src.config.load_settings:")
+    for site in sorted(got):
+        print(f"  file={site[0]} line={site[1]} in_symbol={site[2]}")
+    assert expected <= got, f"missing callers: {expected - got}"
+    for r in call_sites:
+        assert "file" in r and "line" in r and "in_symbol" in r, r
+    print("  PASS: all three call sites present, each with file/line/in_symbol\n")
+
+    # -- Bullet 2: args as written, never traced ------------------------------
+    by_line = {r["line"]: r for r in call_sites}
+    print("bullet 2 — args recorded at each call site:")
+    for line in (3, 9, 18):
+        print(f"  line {line}: args={by_line[line]['args']}")
+    assert by_line[3]["args"] == ["'app.toml'"]
+    # p came from compute_path(); flag from a literal — must stay 'p'/'flag'.
+    assert by_line[9]["args"] == ["p", "strict=flag"], by_line[9]["args"]
+    assert by_line[18]["args"] == ["compute_path()", "strict=not False"]
+    traced = [a for a in by_line[9]["args"] if "compute_path" in a or "True" in a]
+    assert not traced, f"args were traced to origin: {traced}"
+    print("  PASS: args are verbatim source text; 'p' not traced to compute_path()\n")
+
+    # -- Bullet 3: ambiguous matches recorded as ambiguous, not dropped -------
+    loads = refs["src.config.Loader.load"]
+    ambiguous = [r for r in loads if r["line"] == 22]
+    print("bullet 3 — worker.load() (opaque receiver, terminal matches Loader.load):")
+    for r in ambiguous:
+        print(f"  record={r}")
+    assert ambiguous, "ambiguous match was dropped entirely"
+    for r in ambiguous:
+        assert r.get("ambiguous") is True, r
+        assert r.get("note"), r
+    print("  PASS: recorded with ambiguous=True and a human-readable note")
+
+
+if __name__ == "__main__":
+    main()
+    print("\nall done_when probes passed")

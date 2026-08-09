@@ -1,0 +1,20 @@
+{
+  "commit": "f7b67141fbe0e0ca82dcfd5b871d0807be3a0ecf",
+  "dispatch_id": "3t",
+  "dispatch_plan_hash": "c98fb664a54f",
+  "fence_allowed": {},
+  "fence_sha256": "c8b5fba10dc76560fff12a3570b3e0b1507c43218e55ad5cfb5203b45f909566",
+  "finished": "2026-08-08T11:59:19-0400",
+  "generator": "harness.join record/1",
+  "node": "affected_symbols",
+  "packet_hash": "712cdfe4ecef",
+  "record": "dispatch",
+  "role": "tester",
+  "spec_plan_hash": "700ed9428a55",
+  "started": "2026-08-08T11:42:00-0400",
+  "tokens": {
+    "input_incl_cache": null,
+    "output": null
+  },
+  "wall_clock_seconds": 1039
+}

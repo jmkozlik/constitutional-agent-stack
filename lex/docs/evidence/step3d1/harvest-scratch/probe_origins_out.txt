@@ -1,0 +1,18 @@
+files indexed: ['app/lazy.py', 'app/via_facade.py', 'pkg/__init__.py', 'pkg/impl.py']
+top-level index keys: ['commit', 'files', 'symbols', 'unresolved', 'version']
+every symbol path in the index: ['app.via_facade.go', 'pkg.impl.helper']
+module paths present as symbol records: []
+
+(a) app/lazy.py contains exactly `import pkg.impl` and uses nothing.
+    reference records naming app/lazy.py : []
+    unresolved sites naming app/lazy.py  : []
+    => nothing in the returned index ties app/lazy.py to pkg.impl.
+       A symbol-path origin for the binding `pkg` does not exist,
+       because `pkg.impl` is a module and modules get no records.
+
+(b) app/via_facade.py reaches pkg.impl.helper only through the facade.
+    call edge resolved to pkg.impl.helper <- app/via_facade.py:1 in app.via_facade
+    call edge resolved to pkg.impl.helper <- app/via_facade.py:5 in app.via_facade.go
+    => the re-export chase works for a CALLED name. The consumer's
+       line needs the same edge for an IMPORTED-but-uncalled name,
+       which no current index field carries.

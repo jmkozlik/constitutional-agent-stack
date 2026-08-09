@@ -1,0 +1,2 @@
+def target(a):
+    return a + 2

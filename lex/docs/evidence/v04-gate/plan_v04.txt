@@ -1,0 +1,36 @@
+index: 28 files at worktree (uncommitted)
+spec plan hash: 700ed9428a55   dispatch plan hash: c98fb664a54f
+
+dispatch-safe plan
+  level 0  (1 parallel)
+    - gitio  [delta: empty (validation-only)]
+  level 1  (1 parallel)
+    - symbol_table  [delta: empty (validation-only)]
+  level 2  (1 parallel)
+    - reference_map  [delta: empty (validation-only)]
+  level 3.0  (1 parallel)
+    - affected_symbols  [delta: empty (validation-only)]
+  level 3.1  (1 parallel)
+    - unresolved_sites  [delta: empty (validation-only)]
+  level 4  (1 parallel)
+    - analyzer_cli  [delta: empty (validation-only)]
+
+18 findings
+  [W02] reference_map: unresolvable region forces serialization: analyzer/refs.py (getattr_call at line 36, getattr_call at line 37, getattr_call at line 39, getattr_call at line 637)
+  [W02] unresolved_sites: unresolvable region forces serialization: analyzer/refs.py (getattr_call at line 36, getattr_call at line 37, getattr_call at line 39, getattr_call at line 637); serialize against level-3 peers: affected_symbols
+  [W05] symbol_table (level 1) consumes analyzer.refs.ImportTable, analyzer.refs.ImportTable.from_module, analyzer.refs.Resolver, analyzer.refs.collect_references owned by reference_map (level 2) with no spec path between them — the compiled order does not protect this edge
+  [W07] affected_symbols: done_when bullet has no anchor in surface: "An import added at the top of a file reports every symbol as moved, nothing as changed."
+  [W07] affected_symbols: done_when bullet has no anchor in surface: "A signature change names every call site."
+  [W07] analyzer_cli: done_when bullet has no anchor in surface: "index runs on a 20k line repo in under 10 seconds."
+  [W07] analyzer_cli: done_when bullet has no anchor in surface: "Every subcommand works against a saved index file without reindexing."
+  [W07] reference_map: done_when bullet has no anchor in surface: "Given a symbol, returns every caller with file, line, and enclosing symbol."
+  [W07] reference_map: done_when bullet has no anchor in surface: "Call site arguments are recorded as written, never traced to their origin."
+  [W07] reference_map: done_when bullet has no anchor in surface: "Ambiguous matches are recorded as ambiguous rather than dropped."
+  [W01] symbol_table: undecided - Nested functions as their own symbols, or folded into the parent?
+  [W01] symbol_table: undecided - Index module level constants?
+  [W07] symbol_table: done_when bullet has no anchor in surface: "Indexing the same commit twice produces byte identical output."
+  [W07] symbol_table: done_when bullet has no anchor in surface: "Reformatting whitespace does not change the body hash."
+  [W07] symbol_table: done_when bullet has no anchor in surface: "Ranges are recomputed per commit, never stored as identity."
+  [W07] unresolved_sites: done_when bullet has no anchor in surface: "A registry lookup or getattr call produces a record, never a silent skip."
+  [W07] unresolved_sites: done_when bullet has no anchor in surface: "Symbols in a file containing an unresolved site are marked low confidence."
+  [W07] unresolved_sites: done_when bullet has no anchor in surface: "A consumer can ask whether a symbol is safe to parallelize and get a straight no."

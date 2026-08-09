@@ -1,0 +1,99 @@
+"""Adversarial follow-ups to B2 and B3.
+
+B2x: the caller lives in the SAME file as the body-changed symbol, and the
+     body edit shifts its line numbers. The caller is therefore inside a
+     changed file and IS a candidate — does it get a signature/body row?
+B3x: the changed signature belongs to a method reached through an
+     attribute chain, not a bare name import.
+"""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from probe_3b import banner, build_index, commit, make_repo, show  # noqa: E402
+
+from analyzer.affected import compute_affected  # noqa: E402
+
+
+def b2x():
+    banner("B2x  same-file caller, body edit shifts its lines")
+    repo = make_repo("b2x_same_file_caller")
+    mod_v1 = (
+        "def target(a):\n"
+        "    return a + 1\n"
+        "\n"
+        "\n"
+        "def same_file_caller():\n"
+        "    return target(1)\n"
+    )
+    # body grows by two lines -> same_file_caller shifts down
+    mod_v2 = (
+        "def target(a):\n"
+        "    tmp = a\n"
+        "    tmp = tmp + 1\n"
+        "    return tmp\n"
+        "\n"
+        "\n"
+        "def same_file_caller():\n"
+        "    return target(1)\n"
+    )
+    old = commit(repo, {"mod.py": mod_v1}, "v1")
+    new = commit(repo, {"mod.py": mod_v2}, "body only, lines shift")
+    report = compute_affected(repo, old, new)
+    show(report)
+    print(f"  >> rows: {[(r.path, r.category) for r in report.rows]}")
+    print(
+        "  >> any signature/body row for the caller: "
+        f"{any(r.path == 'mod.same_file_caller' and r.category in ('signature', 'body') for r in report.rows)}"
+    )
+
+
+def b3x():
+    banner("B3x  method signature change reached via attribute chain")
+    repo = make_repo("b3x_method_sig")
+    mod_v1 = (
+        "class Service:\n"
+        "    def handle(self, a):\n"
+        "        return a\n"
+    )
+    mod_v2 = (
+        "class Service:\n"
+        "    def handle(self, a, b):\n"
+        "        return a\n"
+    )
+    user = (
+        "from mod import Service\n"
+        "\n"
+        "\n"
+        "def use_one():\n"
+        "    s = Service()\n"
+        "    return s.handle(1)\n"
+        "\n"
+        "\n"
+        "def use_two():\n"
+        "    return Service().handle(2)\n"
+    )
+    old = commit(repo, {"mod.py": mod_v1, "user.py": user}, "v1")
+    new = commit(repo, {"mod.py": mod_v2}, "method param added")
+    idx = build_index(repo, old)
+    for rec in idx["symbols"]:
+        if rec["path"] == "mod.Service.handle":
+            print(
+                "  >> old index referenced_by for mod.Service.handle: "
+                f"{[(c['file'], c['line'], c['in_symbol'], c.get('ambiguous')) for c in rec['referenced_by']]}"
+            )
+    print("  >> old index unresolved sites:")
+    for u in idx["unresolved"]:
+        print(
+            f"     file={u['file']} line={u['line']} in={u['in_symbol']} "
+            f"reason={u['reason']} expr={u.get('expression')}"
+        )
+    report = compute_affected(repo, old, new)
+    show(report)
+
+
+if __name__ == "__main__":
+    b2x()
+    b3x()

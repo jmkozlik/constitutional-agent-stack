@@ -1,0 +1,5 @@
+from mod import target
+
+
+def caller_one():
+    return target(1)

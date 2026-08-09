@@ -1,0 +1,29 @@
+{
+  "record": "dispatch",
+  "generator": "MANUAL \u2014 3c builds the emitter",
+  "dispatch_id": "3b",
+  "node": "affected_symbols",
+  "role": "executor",
+  "commit": "4b30c3814ccd2b4cfd5ac4b18b2f177ba59355eb",
+  "spec_plan_hash": "700ed9428a55",
+  "dispatch_plan_hash": "c98fb664a54f",
+  "packet_hash": "5b1e031b1111",
+  "packet_delivery": "file (.harness/packet.md, sha256 8c9461f802595de5...)",
+  "fence_sha256": "8d0a0b832a0ca12c8eb9a27d3230484acd06e341e0a1c56d4471e994bf762972",
+  "model": "claude-opus-5",
+  "started": "2026-08-07T15:42:36-0400",
+  "artifacts_landed": "2026-08-07T16:02:xx-0400",
+  "wall_clock": "~20m dispatch-to-artifacts",
+  "tokens": {
+    "output": 42944,
+    "input_incl_cache": 4707908
+  },
+  "verdict": "4 ATTEST / 2 FILE (D1); artifacts delivered (.harness/out/attestation.md, defects.md); fence events none; diff gate clean; pytest 208",
+  "miss_log": [
+    {
+      "request_mem": "none logged as REQUEST_MEM lines; D3 filed the ambient-interpreter verify-command defect instead (resolved via environment probe, not a repo read)",
+      "blocking": false,
+      "layer_depth": "n/a"
+    }
+  ]
+}

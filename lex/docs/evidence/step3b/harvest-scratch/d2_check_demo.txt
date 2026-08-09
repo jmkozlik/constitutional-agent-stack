@@ -1,0 +1,14 @@
+authored line                                  shape          delta verdict
+------------------------------------------------------------------------------
+analyzer.affected.compute_affected             other          behavioral -> exempt
+analyzer.affected.Row.category                 attr-on-type   present
+analyzer.affected.Row.path                     attr-on-type   present
+analyzer.affected.Row.callers                  attr-on-type   present
+analyzer.affected.AffectedReport               other          behavioral -> exempt
+analyzer.affected.Row.callers_unknowable       attr-on-type   *** ABSENT ***
+analyzer.indexer.record                        other          behavioral -> exempt
+analyzer.affected.Row.error                    attr-on-type   present
+analyzer.affected.AffectedReport.has_error     attr-on-type   present
+------------------------------------------------------------------------------
+structural authored lines that would FAIL the check: ['analyzer.affected.Row.callers_unknowable']
+=> delta would be NON-EMPTY; dispatch would not be labelled validation-only.

@@ -1,0 +1,195 @@
+# The v0 analyzer, in spec format v0.4.
+# Surface lines are marked [seeded] (byte-for-byte from the index — the
+# no-invention proof) or [authored] (contract — verified by tester fixtures,
+# not by the delta). W07 = anchor-presence: every done_when bullet must name
+# at least one surface entry. Known W07s on original bullets are left to
+# print — the plan does not hide unanchored guarantees.
+# W05 restructure (index_assembly node) is ratified but sequenced after
+# step 3; until it lands the refs W05 stays printed.
+
+- language: python
+
+- observed_through: the value returned by the surface callable, unless a
+    done_when bullet names a rendering callable explicitly
+
+- id: gitio
+  one_liner: Git plumbing for the analyzer - file listings, blob contents, and
+             diff ranges at a rev, all read from git objects without checkouts.
+  references: []
+  writes: [analyzer/gitio.py]
+  surface:
+    callables:
+      - "analyzer.gitio.changed_files(repo: str | Path, old: str, new: str) -> dict[str, tuple[list[Range], list[Range]]]  [seeded]"
+      - "analyzer.gitio.list_py_files(repo: str | Path, rev: str) -> list[str]  [seeded]"
+      - "analyzer.gitio.read_files(repo: str | Path, rev: str, paths: list[str]) -> dict[str, bytes]  [seeded]"
+      - "analyzer.gitio.resolve_commit(repo: str | Path, rev: str) -> str  [seeded]"
+    types:
+      - "analyzer.gitio.Range = tuple[int, int]  [authored]"
+    errors:
+      - "analyzer.gitio.GitError: raised by every callable when the underlying git command exits non-zero, naming the failed command  [seeded]"
+  done_when:
+    - read_files and list_py_files answer from git objects, never a checkout.
+    - changed_files surfaces a renamed file as a delete plus an add, never a rename.
+    - A failing git command raises GitError, never a silent empty result.
+
+- id: symbol_table
+  one_liner: Extracts every function and class from Python source with its location,
+             signature, and separate hashes for signature and body.
+  references: []
+  writes: [analyzer/modpath.py, analyzer/symbols.py]
+  surface:
+    callables:
+      - "analyzer.symbols.extract_symbols(source: bytes, rel_path: str) -> list[dict]  [seeded]"
+      - "analyzer.modpath.module_path(rel_path: str) -> str  [seeded]"
+    types:
+      - "analyzer.symbols.extract_symbols: each returned record carries path,
+         kind, file, start_line, end_line, signature, doc, sig_hash, body_hash,
+         decor_hash and parent; class records add fields. The index layer adds
+         confidence and referenced_by downstream.  [authored]"
+    errors:
+      - "analyzer.symbols.ParseFailure: raised by extract_symbols when source does not parse; the index layer instead records an unresolved site with reason parse_error  [seeded]"
+  done_when:
+    - Reformatting whitespace does not change the body hash.
+    - Ranges are recomputed per commit, never stored as identity.
+  open:
+    - Nested functions as their own symbols, or folded into the parent?
+    - Index module level constants?
+
+- id: index_assembly
+  one_liner: Assembles the index for a repo at a commit - symbol records, reference
+             edges, unresolved sites, and each file's import bindings with their
+             resolved origins.
+  references: [gitio, symbol_table, reference_map, unresolved_sites]
+  writes: [analyzer/indexer.py]
+  surface:
+    callables:
+      - "analyzer.indexer.build_index(repo: str | Path, commit: str | None) -> dict  [seeded]"
+      - "analyzer.indexer.serialize(index: dict) -> str  [seeded]"
+      - "analyzer.indexer.load_index(path: str | Path) -> dict  [seeded]"
+      - "analyzer.indexer.import_origins(index: dict, module: str) -> list[str]  [authored]"
+    types:
+      - "analyzer.indexer.record(path: str, kind: str, file: str, start_line: int, end_line: int, signature: str, doc: str | None, sig_hash: str, body_hash: str, decor_hash: str, parent: str, confidence: str, referenced_by: list; class records add fields: list)  [authored]"
+      - "analyzer.indexer.imports: the index adds a top-level imports table —
+         {file - [{name - str, kind - module | symbol, origin - dotted resolved
+         terminal, being the symbol path for name bindings and the module path
+         for module bindings, module - dotted defining module, equal to origin
+         for module-kind entries}]}. Files emit sorted by path and each
+         file's entries emit sorted by (name, origin), so byte-identity
+         survives the new key.  [authored]"
+      - "analyzer.indexer.imports: bindings — the bound name and the
+         module the statement names — are transcribed from the import
+         statements themselves; every resolution (relative-import
+         bases, module-vs-symbol decisions, re-export chases,
+         unresolvable-target verdicts) is taken from the reference
+         layer at build time and never recomputed downstream.
+         Transcribing stated syntax is not recomputation.  [authored]"
+      - "analyzer.indexer.import_origins: matches entries on the module field —
+         the dotted defining module — and answers from the index's imports
+         table, never by recomputation.  [authored]"
+      - "analyzer.indexer.imports: an import whose bound names cannot be
+         resolved but whose source module is stated (star_import) emits kind
+         unresolved with origin null and module = the source module. An import
+         whose target itself cannot be resolved (unresolved_import_target)
+         emits kind unresolved with origin and module null. The binding is
+         recorded, never invented — and a stated source module is a fact, not
+         an invention. An import of a name that resolves to no indexed
+         definition — a constant, or anything out-of-repo — emits kind
+         unresolved with origin null and module = the stated source
+         module.  [authored]"
+      - "analyzer.indexer.imports: every indexed file gets an entry list, empty
+         when it imports nothing; a file that fails to parse gets an empty list
+         alongside its parse_error unresolved site.  [authored]"
+      - "analyzer.indexer.import_origins: returns the sorted, deduplicated
+         repo-relative files importing that module — empty for an unknown
+         module and for an index built before the imports key existed.  [authored]"
+    errors:
+      - "analyzer.indexer.IndexLoadError: raised by load_index when the index file is unreadable or not an analyzer index; a missing file raises FileNotFoundError unchanged  [seeded]"
+  done_when:
+    - Indexing the same commit twice produces byte identical output.
+    - The emitted index maps every symbol path to at least one record carrying its definition location and signature.
+    - build_index exposes each file's import bindings with resolved origins,
+      re-export chains included, and import_origins answers from them.
+    - "A bare module import that is never called yields a module-kind imports
+       entry whose origin and module are both the imported module, so an
+       imported-but-uncalled binding leaves a trace in the index."
+    - "A star-importing file lands in the source module's importer set — its
+       imports entry carries kind unresolved with module set to the source
+       module, so import_origins names it."
+
+- id: reference_map
+  one_liner: Records every site that references each symbol, with the arguments as
+             written at the call site.
+  references: [symbol_table]
+  writes: [analyzer/refs.py]
+  surface:
+    callables:
+      - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]  [seeded]"
+      - "analyzer.refs.ImportTable.from_module(cls, tree: ast.Module, module_path: str, *, is_package: bool = False) -> 'ImportTable'  [seeded]"
+      - "analyzer.refs.scope_statements(body)  [seeded]"
+    types:
+      - "analyzer.refs.Resolver(symbols: dict[str, list[dict]], tables: dict[str, 'ImportTable'])  [seeded]"
+      - "analyzer.refs.ImportTable(module_path: str, *, is_package: bool = False)  [seeded]"
+  done_when:
+    - Given a symbol, returns every caller with file, line, and enclosing symbol.
+    - Call site arguments are recorded as written, never traced to their origin.
+    - Ambiguous matches are recorded as ambiguous rather than dropped.
+
+- id: unresolved_sites
+  one_liner: Records every call site whose target cannot be determined statically,
+             and marks the symbols around it low confidence.
+  references: [symbol_table, reference_map]
+  writes: [analyzer/refs.py]
+  surface:
+    callables:
+      - "analyzer.refs.collect_references(tree: ast.Module, rel_path: str, mod_path: str, resolver: Resolver) -> tuple[list[tuple[str, dict]], list[dict]]  [seeded]"
+  done_when:
+    - A registry lookup or getattr call produces a record, never a silent skip.
+    - Symbols in a file containing an unresolved site are marked low confidence.
+    - A consumer can ask whether a symbol is safe to parallelize and get a straight no.
+
+- id: affected_symbols
+  one_liner: Given two commits, reports which symbols changed and whether the change
+             was to the signature, the body, or only line positions.
+  references: [symbol_table, reference_map, gitio, index_assembly]
+  writes: [analyzer/affected.py]
+  surface:
+    callables:
+      - "analyzer.affected.compute_affected(repo: str | Path, old_rev: str, new_rev: str) -> AffectedReport  [authored]"
+      - "analyzer.affected.render_report(report: AffectedReport, out=sys.stdout) -> None  [seeded]"
+    types:
+      - "analyzer.affected.AffectedReport(old: str, new: str, rows: list)  [seeded]"
+      - "analyzer.affected.Row(path: str, category: str, detail: str, callers: list = field(default_factory=list), error: bool = False, callers_unknowable: bool = False)  [seeded]"
+      - "analyzer.affected.Row.category ∈ signature | body | decorators | moved | deleted | added | unknown  [authored]"
+      - "analyzer.affected.Row.path: the affected symbol's dotted path; one row per affected symbol path  [authored]"
+      - "analyzer.affected.Row.callers: list of reference records as compiled in the old index (file: str, line: int, in_symbol: str, kind: call | name, args: list[str] as written; ambiguous + note when the edge is inexact)  [authored]"
+      - "analyzer.affected.AffectedReport: compiled at call time — compute_affected builds the old and new indexes internally from old_rev and new_rev; no pre-built index artifact is read or required  [authored]"
+      - "analyzer.affected.Row.callers_unknowable: set iff the old index records unresolved sites in the symbol's importer set — the symbol's own file, plus every file whose import table contains any binding whose resolved origin is the symbol's defining module (module imports, from-imports of any name in it, and re-export chains). Set means edges may exist that no record names; no edges are invented. Unset means no such sites were detected, and is not a completeness guarantee for channels the analyzer cannot see, such as dynamic imports.  [authored]"
+      - "analyzer.affected.compute_affected: repo is a path to a git repository;
+         old_rev and new_rev are any git revisions rev-parse-able within it. Both
+         indexes are built from git objects at those revisions — neither rev is
+         checked out, and uncommitted worktree state is never consulted.  [authored]"
+    errors:
+      - "analyzer.affected.Row.error: Row.error is set iff the old index records callers for the symbol and either the symbol was deleted at new_rev or its changed file fails to parse at new_rev.  [authored]"
+      - "analyzer.affected.AffectedReport.has_error: true iff any row.error  [authored]"
+  done_when:
+    - An import added at the top of a file reports every symbol as moved, with no signature, body, or decorators row.
+    - A body only change reports the changed symbol with category body and empty callers, and no signature or body row for any of its callers.
+    - A signature change names every call site.
+    - Deleting a symbol with recorded callers is an error, not a silent success.
+    - A signature change to a symbol whose importer set carries unresolved sites reports callers_unknowable, never a bare zero.
+    - Deleting a symbol with no recorded callers but unresolved sites in its importer set reports callers_unknowable.
+    - "callers_unknowable fires through a re-export chain: an importer reaching
+       the symbol's module only via a package facade, carrying an unresolved
+       site, sets the flag."
+
+- id: analyzer_cli
+  one_liner: Command line entry point exposing index, symbol, affected, and unresolved.
+  references: [affected_symbols, unresolved_sites, gitio, index_assembly]
+  writes: [analyzer/cli.py, analyzer/__main__.py]
+  surface:
+    callables:
+      - "analyzer.cli.main(argv=None) -> int  [seeded]"
+  done_when:
+    - index runs on a 20k line repo in under 10 seconds.
+    - Every subcommand works against a saved index file without reindexing.
+    - A report with an error-grade row makes main return exit code 1.

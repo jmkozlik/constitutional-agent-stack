@@ -1,0 +1,12 @@
+import os
+def alpha(a, b):
+    return a + b
+
+
+def beta(x):
+    return alpha(x, 1)
+
+
+class Gamma:
+    def method(self, y):
+        return beta(y)

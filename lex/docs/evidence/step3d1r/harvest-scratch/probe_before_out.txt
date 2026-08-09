@@ -1,0 +1,26 @@
+== 1. index top-level keys ==
+['commit', 'files', 'symbols', 'unresolved', 'version']
+imports key present: False
+
+== 2. ImportTable bindings for each importer ==
+app/bare.py          source='import pkg.impl'
+                     _bindings={'pkg': ('pkg',)}  has_star=False
+app/alias.py         source='import pkg.impl as pi'
+                     _bindings={'pi': ('pkg.impl',)}  has_star=False
+app/facade.py        source='from pkg import helper'
+                     _bindings={'helper': ('pkg.helper',)}  has_star=False
+app/direct.py        source='from pkg.impl import widget'
+                     _bindings={'widget': ('pkg.impl.widget',)}  has_star=False
+app/starred.py       source='from pkg.star_src import *'
+                     _bindings={}  has_star=True
+app/viastar.py       source='from pkg.star_src import hidden_thing'
+                     _bindings={'hidden_thing': ('pkg.star_src.hidden_thing',)}  has_star=False
+app/submod.py        source='from pkg import impl'
+                     _bindings={'impl': ('pkg.impl',)}  has_star=False
+
+== 3. the bullet-4 question ==
+statement:        import pkg.impl
+bound name:       pkg
+resolve('pkg') ->  ('pkg',)
+bullet 4 wants origin == module == 'pkg.impl'
+ImportTable can supply 'pkg.impl'? False

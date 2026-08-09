@@ -1,0 +1,1 @@
+write-fence gate: clean (all changes within scope)

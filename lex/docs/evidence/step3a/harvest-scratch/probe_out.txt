@@ -1,0 +1,74 @@
+
+=== BULLET 1: import added at top => every symbol moved ===
+  --- render_report ---
+mod.Gamma           moved   no effect
+mod.Gamma.method    moved   no effect
+mod.alpha           moved   no effect
+mod.beta            moved   no effect
+  --- rows ---
+    path='mod.Gamma' category='moved' detail='no effect' error=False callers=[]
+    path='mod.Gamma.method' category='moved' detail='no effect' error=False callers=[]
+    path='mod.alpha' category='moved' detail='no effect' error=False callers=[]
+    path='mod.beta' category='moved' detail='no effect' error=False callers=[]
+  has_error=False
+  [PASS] every row is 'moved' -- categories=['moved']
+  [PASS] every symbol in the touched file is reported -- paths=['mod.Gamma', 'mod.Gamma.method', 'mod.alpha', 'mod.beta']
+  [PASS] nothing reported as changed
+  [PASS] no error
+
+=== BULLET 2: body-only change => body, empty callers ===
+  --- render_report ---
+mod.target    body   owner only
+  --- rows ---
+    path='mod.target' category='body' detail='owner only' error=False callers=[]
+  has_error=False
+  [PASS] exactly one row for the changed symbol
+  [PASS] category is 'body'
+  [PASS] callers empty -- callers=[]
+  [PASS] no signature/body row for any caller -- offending=[]
+  [PASS] no error
+
+=== BULLET 3: signature change names every call site ===
+  --- render_report ---
+mod.target    signature   callers affected (4)
+    caller: mod.py:6 (mod.caller_one)
+    caller: other.py:1 (other)
+    caller: other.py:5 (other.caller_two)
+    caller: other.py:9 (other.caller_three)
+  --- rows ---
+    path='mod.target' category='signature' detail='callers affected (4)' error=False callers=[{'file': 'mod.py', 'line': 6, 'in_symbol': 'mod.caller_one', 'kind': 'call', 'args': ['1']}, {'file': 'other.py', 'line': 1, 'in_symbol': 'other', 'kind': 'name'}, {'file': 'other.py', 'line': 5, 'in_symbol': 'other.caller_two', 'kind': 'call', 'args': ['2']}, {'file': 'other.py', 'line': 9, 'in_symbol': 'other.caller_three', 'kind': 'name'}]
+  has_error=False
+  [PASS] row category is 'signature'
+  authored reference sites: [('mod.py', 6), ('other.py', 1), ('other.py', 5), ('other.py', 9)]
+  [PASS] every authored call site named -- missing=[] all=[('mod.py', 6), ('other.py', 1), ('other.py', 5), ('other.py', 9)]
+  caller records: [{'file': 'mod.py', 'line': 6, 'in_symbol': 'mod.caller_one', 'kind': 'call', 'args': ['1']}, {'file': 'other.py', 'line': 1, 'in_symbol': 'other', 'kind': 'name'}, {'file': 'other.py', 'line': 5, 'in_symbol': 'other.caller_two', 'kind': 'call', 'args': ['2']}, {'file': 'other.py', 'line': 9, 'in_symbol': 'other.caller_three', 'kind': 'name'}]
+
+=== BULLET 4: delete with recorded callers is an error ===
+  --- render_report ---
+mod.caller_one    moved     no effect
+mod.target        deleted   ERROR: 3 recorded caller(s)
+    caller: mod.py:6 (mod.caller_one)
+    caller: other.py:1 (other)
+    caller: other.py:5 (other.caller_two)
+  --- rows ---
+    path='mod.caller_one' category='moved' detail='no effect' error=False callers=[]
+    path='mod.target' category='deleted' detail='ERROR: 3 recorded caller(s)' error=True callers=[{'file': 'mod.py', 'line': 6, 'in_symbol': 'mod.caller_one', 'kind': 'call', 'args': ['1']}, {'file': 'other.py', 'line': 1, 'in_symbol': 'other', 'kind': 'name'}, {'file': 'other.py', 'line': 5, 'in_symbol': 'other.caller_two', 'kind': 'call', 'args': ['2']}]
+  has_error=True
+  [PASS] deleted symbol reported
+  [PASS] category is 'deleted'
+  [PASS] row.error set
+  [PASS] callers recorded on the row -- callers=[{'file': 'mod.py', 'line': 6, 'in_symbol': 'mod.caller_one', 'kind': 'call', 'args': ['1']}, {'file': 'other.py', 'line': 1, 'in_symbol': 'other', 'kind': 'name'}, {'file': 'other.py', 'line': 5, 'in_symbol': 'other.caller_two', 'kind': 'call', 'args': ['2']}]
+  [PASS] report.has_error true
+
+=== BULLET 4 control: delete with no callers is not an error ===
+  --- render_report ---
+mod.keep      moved     no effect
+mod.lonely    deleted   no callers recorded
+  --- rows ---
+    path='mod.keep' category='moved' detail='no effect' error=False callers=[]
+    path='mod.lonely' category='deleted' detail='no callers recorded' error=False callers=[]
+  has_error=False
+  [PASS] no error when nothing referenced it
+
+==================== SUMMARY ====================
+FAILURES: none

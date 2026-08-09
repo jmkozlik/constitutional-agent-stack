@@ -1,0 +1,11 @@
+{
+  "allowed": {},
+  "node": "affected_symbols",
+  "packet_hash": "712cdfe4ecef",
+  "plan": "c98fb664a54f",
+  "role": "tester",
+  "scratch": [
+    ".harness/scratch"
+  ],
+  "version": 1
+}

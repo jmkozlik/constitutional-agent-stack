@@ -1,0 +1,77 @@
+files indexed: 30  imports keys: 30
+files == imports keys: True
+sample analyzer/indexer.py:
+[
+ {
+  "kind": "symbol",
+  "module": "analyzer.refs",
+  "name": "ImportTable",
+  "origin": "analyzer.refs.ImportTable"
+ },
+ {
+  "kind": "unresolved",
+  "module": "pathlib",
+  "name": "Path",
+  "origin": null
+ },
+ {
+  "kind": "symbol",
+  "module": "analyzer.refs",
+  "name": "Resolver",
+  "origin": "analyzer.refs.Resolver"
+ },
+ {
+  "kind": "module",
+  "module": "ast",
+  "name": "ast",
+  "origin": "ast"
+ },
+ {
+  "kind": "symbol",
+  "module": "analyzer.refs",
+  "name": "collect_references",
+  "origin": "analyzer.refs.collect_references"
+ },
+ {
+  "kind": "unresolved",
+  "module": "collections",
+  "name": "defaultdict",
+  "origin": null
+ },
+ {
+  "kind": "symbol",
+  "module": "analyzer.symbols",
+  "name": "extract_from_tree",
+  "origin": "analyzer.symbols.extract_from_tree"
+ },
+ {
+  "kind": "module",
+  "module": "analyzer.gitio",
+  "name": "gitio",
+  "origin": "analyzer.gitio"
+ },
+ {
+  "kind": "module",
+  "module": "json",
+  "name": "json",
+  "origin": "json"
+ },
+ {
+  "kind": "symbol",
+  "module": "analyzer.modpath",
+  "name": "module_path",
+  "origin": "analyzer.modpath.module_path"
+ },
+ {
+  "kind": "module",
+  "module": "subprocess",
+  "name": "subprocess",
+  "origin": "subprocess"
+ },
+ {
+  "kind": "module",
+  "module": "sys",
+  "name": "sys",
+  "origin": "sys"
+ }
+]

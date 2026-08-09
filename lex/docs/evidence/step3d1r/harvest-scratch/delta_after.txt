@@ -1,0 +1,6 @@
+kind: empty
+outstanding: []
+  present   analyzer.indexer.build_index(repo: str | Path, commit: str | None) -> 
+  present   analyzer.indexer.serialize(index: dict) -> str  [seeded]
+  present   analyzer.indexer.load_index(path: str | Path) -> dict  [seeded]
+  present   analyzer.indexer.import_origins(index: dict, module: str) -> list[str]

@@ -1,0 +1,185 @@
+"""Build the two-commit fixture repo used by probe_3d1.py.
+
+c1 -> baseline: a package facade (pkg/__init__.py re-exports from pkg/impl.py),
+      a class with decorated methods, a nested def, an async def, an importer.
+c2 -> whitespace-only reformat of pkg/impl.py (blank lines + a comment), plus
+      an import added at the top of app/main.py. No token of any body changes.
+c3 -> a real one-token body edit inside pkg/impl.py (the control for bullet 3).
+"""
+
+import subprocess
+import sys
+from pathlib import Path
+
+C1_IMPL = '''\
+"""Implementation module."""
+
+import functools
+
+
+class Widget:
+    """A widget."""
+
+    size: int = 3
+    label: str
+
+    @property
+    def value(self):
+        return self._v
+
+    @value.setter
+    def value(self, v):
+        self._v = v
+
+    @functools.lru_cache
+    def compute(self, a, b=2, *rest, key=None, **kw) -> int:
+        total = a + b
+        def inner(x):
+            return x * total
+        return inner(len(rest))
+
+
+class Gadget(Widget, metaclass=type):
+    def poke(self):
+        return 1
+
+
+def helper(name: str, /, count: int = 1) -> str:
+    return f"{name}:{count}"
+
+
+async def fetch(url: str) -> bytes:
+    return url.encode()
+'''
+
+# Whitespace / comment / blank-line reformat only. Every statement is the same
+# token sequence as C1_IMPL; only formatting and vertical position differ.
+C2_IMPL = '''\
+"""Implementation module."""
+
+# --- a comment that did not exist at c1 ---------------------------------
+
+import functools
+
+
+class Widget:
+    """A widget."""
+
+    size: int = 3
+
+    label: str
+
+    @property
+    def value(self):
+
+        return self._v
+
+    @value.setter
+    def value(self, v):
+
+        self._v = v
+
+    @functools.lru_cache
+    def compute(self, a, b=2, *rest, key=None, **kw) -> int:
+        total = a + b
+
+        def inner(x):
+
+            return x * total
+
+        return inner(len(rest))
+
+
+class Gadget(Widget, metaclass=type):
+
+    def poke(self):
+
+        return 1
+
+
+def helper(name: str, /, count: int = 1) -> str:
+
+    return f"{name}:{count}"
+
+
+async def fetch(url: str) -> bytes:
+
+    return url.encode()
+'''
+
+# Control: one real token changed in helper's body (count -> count + 1).
+C3_IMPL = C2_IMPL.replace('return f"{name}:{count}"', 'return f"{name}:{count + 1}"')
+
+C1_INIT = '''\
+"""Package facade: re-exports the implementation."""
+
+from pkg.impl import Widget, fetch, helper
+'''
+
+C1_MAIN = '''\
+from pkg import Widget, helper
+
+
+def run():
+    w = Widget()
+    return helper("a", 2), w.compute(1)
+'''
+
+C2_MAIN = '''\
+import os
+
+from pkg import Widget, helper
+
+
+def run():
+    w = Widget()
+    return helper("a", 2), w.compute(1)
+'''
+
+
+def git(repo: Path, *args: str) -> str:
+    out = subprocess.run(
+        ["git", "-c", "user.email=t@t.t", "-c", "user.name=t", "-C", str(repo), *args],
+        capture_output=True,
+        check=True,
+    )
+    return out.stdout.decode().strip()
+
+
+def write(repo: Path, rel: str, text: str) -> None:
+    path = repo / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+
+
+def build(root: Path) -> dict[str, str]:
+    repo = root / "repo"
+    if repo.exists():
+        subprocess.run(["rm", "-rf", str(repo)], check=True)
+    repo.mkdir(parents=True)
+    git(repo, "init", "-q", "-b", "main")
+
+    write(repo, "pkg/__init__.py", C1_INIT)
+    write(repo, "pkg/impl.py", C1_IMPL)
+    write(repo, "app/__init__.py", "")
+    write(repo, "app/main.py", C1_MAIN)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "c1 baseline")
+    c1 = git(repo, "rev-parse", "HEAD")
+
+    write(repo, "pkg/impl.py", C2_IMPL)
+    write(repo, "app/main.py", C2_MAIN)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "c2 whitespace reformat + import at top")
+    c2 = git(repo, "rev-parse", "HEAD")
+
+    write(repo, "pkg/impl.py", C3_IMPL)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "c3 one real body token changed")
+    c3 = git(repo, "rev-parse", "HEAD")
+
+    return {"repo": str(repo), "c1": c1, "c2": c2, "c3": c3}
+
+
+if __name__ == "__main__":
+    print(build(Path(sys.argv[1])))

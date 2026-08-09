@@ -1,0 +1,61 @@
+fixture repo: /private/tmp/claude-501/-Users-rokko-experiments-lex/e080b300-5c0a-4fee-83a9-01d14d44cd6f/scratchpad/dispatches/3d-1/.harness/scratch/repo
+c1=fc6bf66fe268  c2=cb449e0fcb05  c3=162b345e2918
+
+=== BULLET 1: same commit twice -> byte identical ===
+  in-process build #1 sha256=e3ef80e98a42aa3b50cee4eea6f7b065053906d50b212408cd85ee6ebd55e98c bytes=6187
+  in-process build #2 sha256=e3ef80e98a42aa3b50cee4eea6f7b065053906d50b212408cd85ee6ebd55e98c bytes=6187
+  [OK] two in-process builds of c1 are byte identical
+  fresh process PYTHONHASHSEED=0      sha256=e3ef80e98a42aa3b50cee4eea6f7b065053906d50b212408cd85ee6ebd55e98c
+  fresh process PYTHONHASHSEED=1      sha256=e3ef80e98a42aa3b50cee4eea6f7b065053906d50b212408cd85ee6ebd55e98c
+  fresh process PYTHONHASHSEED=random sha256=e3ef80e98a42aa3b50cee4eea6f7b065053906d50b212408cd85ee6ebd55e98c
+  [OK] three fresh processes agree with the in-process bytes
+  [OK] a different commit produces different bytes (probe is discriminating)
+
+=== BULLET 2: every symbol path -> >=1 record with location + signature ===
+  files indexed: ['app/__init__.py', 'app/main.py', 'pkg/__init__.py', 'pkg/impl.py']
+  extract_symbols paths: 9   index symbol records: 10   distinct index paths: 9
+  paths in extract_symbols but absent from the index: []
+  [OK] no extracted symbol path is missing from the index
+  [OK] every record carries a usable file + start_line/end_line
+  [OK] every record carries a signature key
+  records whose signature renders as the empty string: ['pkg.impl.Widget [class]']
+  (observation, not a check: _signature_display returns '' for a class
+   with no bases/keywords — see the FILE note in the attestation)
+    app.main.run                 function  app/main.py:4-6  sig='()'
+    pkg.impl.Gadget              class     pkg/impl.py:28-30  sig='(Widget, metaclass=type)'
+    pkg.impl.Gadget.poke         function  pkg/impl.py:29-30  sig='(self)'
+    pkg.impl.Widget              class     pkg/impl.py:6-25  sig=''
+    pkg.impl.Widget.compute      function  pkg/impl.py:20-25  sig='(self, a, b=2, *rest, key=None, **kw) -> int'
+    pkg.impl.Widget.compute.inner function  pkg/impl.py:23-24  sig='(x)'
+
+=== BULLET 3: whitespace reformat -> body_hash unchanged ===
+  git diff --stat c1..c2 -- pkg/impl.py: pkg/impl.py | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+    pkg.impl.Gadget              c1  28-30  body=5db56db1  ->  c2  36-40  body=5db56db1
+    pkg.impl.Gadget.poke         c1  29-30  body=486d9aff  ->  c2  38-40  body=486d9aff
+    pkg.impl.Widget              c1   6-25  body=efe220b7  ->  c2   8-33  body=efe220b7
+    pkg.impl.Widget.compute      c1  20-25  body=aa6b398a  ->  c2  25-33  body=aa6b398a
+    pkg.impl.Widget.compute.inner c1  23-24  body=60fcefe1  ->  c2  29-31  body=60fcefe1
+    pkg.impl.Widget.value        c1  12-14  body=b3742c15  ->  c2  15-18  body=b3742c15
+    pkg.impl.Widget.value        c1  16-18  body=e63f054c  ->  c2  20-23  body=e63f054c
+    pkg.impl.fetch               c1  37-38  body=4e2be2b9  ->  c2  48-50  body=4e2be2b9
+    pkg.impl.helper              c1  33-34  body=2f8cf442  ->  c2  43-45  body=2f8cf442
+  [OK] no body_hash changed across the whitespace-only reformat
+  [OK] the reformat did move line ranges (probe is discriminating)
+  control, one real token edited at c3: pkg.impl.helper body 2f8cf442 -> 8d7fbbd0
+  [OK] a real body edit does change body_hash (hash is not a constant)
+
+=== BULLET 4: ranges recomputed per commit, not identity ===
+  app.main.run  c1 lines 4-6  c2 lines 6-8  (import added at top)
+  identity triple c1: path=app.main.run sig=9bc8d3d3 body=c51ad774 decor=e3b0c442
+  identity triple c2: path=app.main.run sig=9bc8d3d3 body=c51ad774 decor=e3b0c442
+  [OK] the range moved while path and all three hashes held
+  c2 records whose range disagrees with the c2 blob's own AST: []
+  [OK] every c2 range is the c2 source's own range (recomputed, not carried)
+  same def at line 1 vs line 6: sig d5542cc0==d5542cc0, body 6e55e32b==6e55e32b
+  [OK] line position contributes nothing to sig_hash or body_hash
+  note (observation, not a check): start_line DOES appear in the record
+  sort key (path, file, start_line, sig_hash, body_hash) — ordering, not
+  identity. See the attestation's scope note on this bullet.
+
+RESULT: ALL CHECKS HELD

@@ -1,0 +1,6 @@
+import mod
+
+
+def dynamic_user(name):
+    fn = getattr(mod, name)
+    return fn(1)

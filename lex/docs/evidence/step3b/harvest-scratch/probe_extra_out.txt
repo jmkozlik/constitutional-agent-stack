@@ -1,0 +1,32 @@
+
+========================================================================
+B2x  same-file caller, body edit shifts its lines
+========================================================================
+  has_error=False
+  ROW path='mod.same_file_caller' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.target' category='body' detail='owner only'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  >> rows: [('mod.same_file_caller', 'moved'), ('mod.target', 'body')]
+  >> any signature/body row for the caller: False
+
+========================================================================
+B3x  method signature change reached via attribute chain
+========================================================================
+  >> old index referenced_by for mod.Service.handle: [('user.py', 6, 'user.use_one', True), ('user.py', 10, 'user.use_two', None)]
+  >> old index unresolved sites:
+  has_error=False
+  ROW path='mod.Service' category='body' detail='owner only'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.Service.handle' category='signature' detail='callers affected (2)'
+      callers(2):
+        user.py:6 in=user.use_one kind=call args=['1'] ambiguous=True note=attribute name match; receiver not statically resolvable
+        user.py:10 in=user.use_two kind=call args=['2'] ambiguous=None note=None
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'

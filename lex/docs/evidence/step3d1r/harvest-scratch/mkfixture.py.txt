@@ -1,0 +1,69 @@
+"""Build the fixture repo the imports-table probes run against.
+
+One file per import shape named in the surface / done_when bullets.
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+FILES = {
+    # --- the defining package -------------------------------------------
+    "pkg/__init__.py": "from pkg.impl import helper\n",
+    "pkg/impl.py": (
+        "def helper():\n"
+        "    return 1\n"
+        "\n"
+        "\n"
+        "def widget():\n"
+        "    return 2\n"
+        "\n"
+        "\n"
+        "CONSTANT = 5\n"
+    ),
+    # a module that star-imports, so its own names are unknowable
+    "pkg/star_src.py": (
+        "from pkg.impl import *\n"
+        "\n"
+        "\n"
+        "def visible():\n"
+        "    return 3\n"
+    ),
+    # --- importers ------------------------------------------------------
+    # bullet 4: bare module import, never called
+    "app/bare.py": "import pkg.impl\n",
+    "app/alias.py": "import pkg.impl as pi\n",
+    # re-export chain: pkg/__init__ re-exports pkg.impl.helper
+    "app/facade.py": "from pkg import helper\n",
+    "app/direct.py": "from pkg.impl import widget\n",
+    # bullet 5: star import keeps its source module
+    "app/starred.py": "from pkg.star_src import *\n",
+    # unresolved_import_target: base has a star, name resolves nowhere
+    "app/viastar.py": "from pkg.star_src import hidden_thing\n",
+    # from-import of a submodule => module-kind
+    "app/submod.py": "from pkg import impl\n",
+    # a name that is a real non-def binding (constant) in a star-free module
+    "app/constant.py": "from pkg.impl import CONSTANT\n",
+    # imports nothing
+    "app/empty.py": "VALUE = 1\n",
+    # fails to parse
+    "app/broken.py": "def oops(:\n",
+}
+
+
+def build(root: Path) -> None:
+    for rel, text in FILES.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-c", "user.email=t@t.t", "-c", "user.name=t",
+         "-C", str(root), "commit", "-q", "-m", "fixture"],
+        check=True,
+    )
+
+
+if __name__ == "__main__":
+    build(Path(sys.argv[1]))
+    print(f"built {sys.argv[1]}")

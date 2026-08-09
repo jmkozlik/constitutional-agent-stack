@@ -1,0 +1,118 @@
+
+========================================================================
+SURFACE  Row dataclass field list as constructed
+========================================================================
+  Row fields:            ['path', 'category', 'detail', 'callers', 'error']
+  AffectedReport fields: ['old', 'new', 'rows']
+  'callers_unknowable' in Row fields: False
+
+========================================================================
+B1  import added at top -> every symbol `moved`, no sig/body/decor row
+========================================================================
+  has_error=False
+  ROW path='mod.Gamma' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.Gamma.method' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.alpha' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.beta' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  >> distinct categories: ['moved']
+  >> row paths: ['mod.Gamma', 'mod.Gamma.method', 'mod.alpha', 'mod.beta']
+  >> any signature/body/decorators row: False
+
+========================================================================
+B2  body-only change -> category body, empty callers, no caller rows
+========================================================================
+  has_error=False
+  ROW path='mod.target' category='body' detail='owner only'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  >> mod.target rows: [('body', 0)]
+  >> rows for caller symbols: []
+  >> old index referenced_by for mod.target: [('other.py', 1, 'other'), ('other.py', 5, 'other.caller_one'), ('other.py', 9, 'other.caller_two')]
+
+========================================================================
+B3  signature change -> names every call site
+========================================================================
+  has_error=False
+  ROW path='mod.target' category='signature' detail='callers affected (5)'
+      callers(5):
+        mod.py:6 in=mod.local_user kind=call args=['9'] ambiguous=None note=None
+        other.py:1 in=other kind=name args=None ambiguous=None note=None
+        other.py:5 in=other.caller_one kind=call args=['1'] ambiguous=None note=None
+        other.py:9 in=other.caller_two kind=call args=['2'] ambiguous=None note=None
+        third.py:5 in=third.caller_three kind=call args=['3'] ambiguous=None note=None
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  >> old index referenced_by for mod.target: [('mod.py', 6, 'mod.local_user'), ('other.py', 1, 'other'), ('other.py', 5, 'other.caller_one'), ('other.py', 9, 'other.caller_two'), ('third.py', 5, 'third.caller_three')]
+  >> mod.target category=signature call sites named=[('mod.py', 6), ('other.py', 1), ('other.py', 5), ('other.py', 9), ('third.py', 5)]
+
+========================================================================
+B4  delete with recorded callers -> error, not silent success
+========================================================================
+  has_error=True
+  ROW path='mod.keeper' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.target' category='deleted' detail='ERROR: 2 recorded caller(s)'
+      callers(2):
+        other.py:1 in=other kind=name args=None ambiguous=None note=None
+        other.py:5 in=other.caller_one kind=call args=['1'] ambiguous=None note=None
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  >> report.has_error = True
+
+========================================================================
+B4-control  delete with NO recorded callers -> not an error
+========================================================================
+  has_error=False
+  ROW path='mod.keeper' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.target' category='deleted' detail='no callers recorded'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  >> report.has_error = False
+
+========================================================================
+B5  sig change, importer set carries unresolved sites -> callers_unknowable
+========================================================================
+  >> old index unresolved sites:
+     file=other.py line=5 in=other.dynamic_user reason=getattr_call expr=getattr(mod, name)
+  >> old index referenced_by for mod.target: []
+  has_error=False
+  ROW path='mod.target' category='signature' detail='callers affected (0)'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+
+========================================================================
+B6  delete, no recorded callers but unresolved importer sites
+========================================================================
+  >> old index unresolved sites:
+     file=other.py line=5 in=other.dynamic_user reason=getattr_call expr=getattr(mod, name)
+  >> old index referenced_by for mod.target: []
+  has_error=False
+  ROW path='mod.keeper' category='moved' detail='no effect'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  ROW path='mod.target' category='deleted' detail='no callers recorded'
+      callers(0):
+      dataclass fields present: ['callers', 'category', 'detail', 'error', 'path']
+      getattr(row,'callers_unknowable',<MISSING>) = '<MISSING>'
+  >> report.has_error = False

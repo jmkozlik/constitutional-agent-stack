@@ -1,0 +1,33 @@
+evals — 6 dispatches, 11 reports, 34 findings tracked
+
+miss depth per node (request_mem lines raised, by the node dispatched)
+  affected_symbols     2 asks over 4 dispatch(es)   0.5/dispatch
+  index_assembly       0 asks over 1 dispatch(es)   0.0/dispatch
+  symbol_table         9 asks over 1 dispatch(es)   9.0/dispatch
+
+defects by catch layer
+  in-dispatch (filed by the agent)    12
+  in-report   (found afterwards)      17
+  caught inside the dispatch: 41%
+
+cost per dispatch
+  3a      affected_symbols   executor      —    asks  0  self-served  0  gate ?
+  3b      affected_symbols   executor      —    asks  0  self-served  0  gate ?
+  3d-1    symbol_table       executor      —    asks  9  self-served  0  gate clean
+  3d-1r   index_assembly     executor      —    asks  0  self-served  3  gate clean
+  3d-2    affected_symbols   executor      —    asks  0  self-served  5  gate clean
+  3t      affected_symbols   tester     17m19s  asks  2  self-served  0  gate ?
+
+finding recurrence (reports a finding appears in)
+  F18    8 reports  002..011
+  F4     8 reports  001..011
+  F6     8 reports  001..008
+  F20    7 reports  004..011
+  F3     7 reports  001..008
+  F5     6 reports  001..007
+  F27    5 reports  007..011
+  F1     4 reports  001..004
+  F13    4 reports  001..004
+  F2     4 reports  001..004
+  F28    4 reports  007..010
+  F7     4 reports  001..004

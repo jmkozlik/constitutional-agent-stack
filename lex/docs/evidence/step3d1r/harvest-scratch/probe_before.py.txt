@@ -1,0 +1,46 @@
+"""Pre-change probe. Two questions, answered against the fixture:
+
+1. Does the index carry an `imports` key today?  (expected: no)
+2. Can `ImportTable`'s bindings supply done_when bullet 4 — a bare
+   `import pkg.impl` whose origin and module are both `pkg.impl`?
+
+(2) is the load-bearing one: it decides whether a public binding-enumeration
+accessor on analyzer/refs.py would be sufficient, or whether the data the
+bullet asks for is discarded by ImportTable and must come from the statement.
+"""
+import ast
+import sys
+from pathlib import Path
+
+from analyzer.indexer import build_index
+from analyzer.refs import ImportTable
+
+repo = Path(sys.argv[1])
+
+index = build_index(repo, None)
+print("== 1. index top-level keys ==")
+print(sorted(index))
+print("imports key present:", "imports" in index)
+
+print()
+print("== 2. ImportTable bindings for each importer ==")
+for rel in ["app/bare.py", "app/alias.py", "app/facade.py", "app/direct.py",
+            "app/starred.py", "app/viastar.py", "app/submod.py"]:
+    src = (repo / rel).read_text()
+    tree = ast.parse(src)
+    mod = rel[:-3].replace("/", ".")
+    table = ImportTable.from_module(tree, mod)
+    print(f"{rel:20} source={src.strip()!r}")
+    print(f"{'':20} _bindings={table._bindings}  has_star={table.has_star}")
+
+print()
+print("== 3. the bullet-4 question ==")
+tree = ast.parse((repo / "app/bare.py").read_text())
+table = ImportTable.from_module(tree, "app.bare")
+targets = table.resolve("pkg")
+print("statement:        import pkg.impl")
+print("bound name:       pkg")
+print("resolve('pkg') -> ", targets)
+print("bullet 4 wants origin == module == 'pkg.impl'")
+print("ImportTable can supply 'pkg.impl'?",
+      any(t == "pkg.impl" for t in targets))

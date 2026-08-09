@@ -1,0 +1,53 @@
+"""Probe for done_when bullet 2: ranges are recomputed per call, never stored
+as identity.
+
+Two checks, observed through extract_symbols' return value:
+1. Line-shift invariance of identity: prepending lines moves start/end_line
+   but leaves every identity field (sig_hash, body_hash, decor_hash) and the
+   path unchanged — so ranges cannot be part of identity.
+2. Recomputation: the ranges in each call's records reflect that call's
+   source exactly (verified against known line numbers), and nothing in the
+   record set persists between calls — same input twice gives identical
+   records; shifted input gives shifted ranges from the same callable with
+   no state carried over.
+"""
+from analyzer.symbols import extract_symbols
+
+SRC = b"""\
+@staticmethod
+def top(a, b):
+    return a + b
+
+
+class C:
+    def m(self):
+        pass
+"""
+
+SHIFT = b"# comment line\n# another\n\n\n\n" + SRC  # 5 lines prepended
+
+base = {r["path"]: r for r in extract_symbols(SRC, "src/m.py")}
+shifted = {r["path"]: r for r in extract_symbols(SHIFT, "src/m.py")}
+
+assert base.keys() == shifted.keys()
+IDENTITY = ("path", "kind", "file", "signature", "sig_hash", "body_hash", "decor_hash", "parent")
+for path in sorted(base):
+    bR, sR = base[path], shifted[path]
+    for f in IDENTITY:
+        assert bR[f] == sR[f], (path, f, bR[f], sR[f])
+    assert sR["start_line"] == bR["start_line"] + 5, (path, bR["start_line"], sR["start_line"])
+    assert sR["end_line"] == bR["end_line"] + 5, (path, bR["end_line"], sR["end_line"])
+    print(f"{path}: lines {bR['start_line']}-{bR['end_line']} -> "
+          f"{sR['start_line']}-{sR['end_line']}, identity fields unchanged")
+
+# Known-position check: ranges match the actual source of THIS call.
+assert base["src.m.top"]["start_line"] == 1   # decorator line, per decorator handling
+assert base["src.m.top"]["end_line"] == 3
+assert base["src.m.C"]["start_line"] == 6
+assert base["src.m.C.m"]["start_line"] == 7
+
+# Statelessness: repeat call reproduces records exactly (nothing cached/stored).
+again = {r["path"]: r for r in extract_symbols(SRC, "src/m.py")}
+assert again == base
+print("repeat call reproduces identical records (no stored state)")
+print("PROBE 2 OK")

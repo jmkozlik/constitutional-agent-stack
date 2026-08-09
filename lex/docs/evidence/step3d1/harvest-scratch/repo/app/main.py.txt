@@ -1,0 +1,8 @@
+import os
+
+from pkg import Widget, helper
+
+
+def run():
+    w = Widget()
+    return helper("a", 2), w.compute(1)

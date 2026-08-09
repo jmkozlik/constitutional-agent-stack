@@ -1,0 +1,130 @@
+"""Observe the shape of the value compute_affected returns.
+
+Observation only, through the declared surface; no implementation source
+is read.  The point is to tell 'attribute exists and is False' apart from
+'attribute does not exist', because those are different defects.
+"""
+import dataclasses
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / ".harness" / "out" / "tests"))
+
+import tempfile
+from conftest import build_repo
+from analyzer.affected import compute_affected, AffectedReport, Row
+
+print("== Row type introspection ==")
+print("is dataclass:", dataclasses.is_dataclass(Row))
+if dataclasses.is_dataclass(Row):
+    print("Row fields:", [f.name for f in dataclasses.fields(Row)])
+print("Row dir (non-dunder):", [n for n in dir(Row) if not n.startswith("_")])
+print()
+print("AffectedReport fields:",
+      [f.name for f in dataclasses.fields(AffectedReport)]
+      if dataclasses.is_dataclass(AffectedReport) else "not a dataclass")
+print("AffectedReport dir (non-dunder):",
+      [n for n in dir(AffectedReport) if not n.startswith("_")])
+print()
+
+MOD_OLD = "def target(a):\n    return a\n"
+MOD_NEW = "def target(a, b):\n    return a + b\n"
+MOD_GONE = "def keep():\n    return 0\n"
+
+TRIGGERS = {
+    "subscript_call": (
+        'import mod\n\nTABLE = {"t": mod.target}\n\n\n'
+        "def dispatch(key, value):\n    return TABLE[key](value)\n"
+    ),
+    "getattr_call": (
+        "import mod\n\n\n"
+        "def dispatch(obj, name, value):\n"
+        "    return getattr(obj, name)(value)\n"
+    ),
+    "getattr_bare": (
+        "import mod\n\n\n"
+        "def dispatch(obj, name):\n    return getattr(obj, name)\n"
+    ),
+    "attribute_of_call": (
+        "import mod\n\n\n"
+        "def dispatch(factory, value):\n    return factory()(value)\n"
+    ),
+    "star_import": (
+        "import mod\nfrom other_pkg import *\n\n\n"
+        "def use(value):\n    return mod.target(value)\n"
+    ),
+    "dynamic_attribute": (
+        "import mod\n\n\n"
+        "def __getattr__(name):\n    return None\n"
+    ),
+    "setattr_call": (
+        "import mod\n\n\n"
+        "def dispatch(obj, name, value):\n    setattr(obj, name, value)\n"
+    ),
+    "clean_control": (
+        "from mod import target\n\n\ndef use(value):\n    return target(value)\n"
+    ),
+}
+
+
+def probe(label, other_source, new_mod):
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "r"
+        files_old = {
+            "mod.py": MOD_OLD,
+            "other.py": other_source,
+            "other_pkg.py": "def helper():\n    return 1\n",
+        }
+        files_new = dict(files_old)
+        files_new["mod.py"] = new_mod
+        old, new = build_repo(root, [files_old, files_new])
+        report = compute_affected(root, old, new)
+        rows = [r for r in report.rows if r.path == "mod.target"]
+        if not rows:
+            print(f"{label:22} -> no mod.target row; paths="
+                  f"{[r.path for r in report.rows]}")
+            return
+        row = rows[0]
+        print(f"{label:22} -> cat={row.category!r} "
+              f"has_attr={hasattr(row, 'callers_unknowable')} "
+              f"value={getattr(row, 'callers_unknowable', '<absent>')!r} "
+              f"ncallers={len(row.callers)} error={row.error} "
+              f"detail={row.detail!r}")
+
+
+print("== signature change, one trigger per importer file ==")
+for label, source in TRIGGERS.items():
+    probe(label, source, MOD_NEW)
+
+print()
+print("== deletion, one trigger per importer file ==")
+for label, source in TRIGGERS.items():
+    probe(label, source, MOD_GONE)
+
+print()
+print("== trigger placed in the symbol's own file ==")
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp) / "own"
+    own_old = MOD_OLD + '\nTABLE = {}\n\n\ndef d(k, v):\n    return TABLE[k](v)\n'
+    own_new = MOD_NEW + '\nTABLE = {}\n\n\ndef d(k, v):\n    return TABLE[k](v)\n'
+    old, new = build_repo(root, [{"mod.py": own_old}, {"mod.py": own_new}])
+    report = compute_affected(root, old, new)
+    for row in report.rows:
+        print(f"  {row.path:16} cat={row.category!r} "
+              f"unknowable={getattr(row, 'callers_unknowable', '<absent>')!r}")
+
+print()
+print("== caller record keys, by kind ==")
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp) / "rec"
+    other = "from mod import target\n\n\ndef use():\n    return target(1)\n"
+    old, new = build_repo(
+        root, [{"mod.py": MOD_OLD, "other.py": other},
+               {"mod.py": MOD_NEW, "other.py": other}]
+    )
+    report = compute_affected(root, old, new)
+    for row in report.rows:
+        for rec in row.callers:
+            print(f"  {row.path}: type={type(rec).__name__} rec={rec!r}")

@@ -1,0 +1,34 @@
+== Row type introspection ==
+is dataclass: True
+Row fields: ['path', 'category', 'detail', 'callers', 'error']
+Row dir (non-dunder): ['error']
+
+AffectedReport fields: ['old', 'new', 'rows']
+AffectedReport dir (non-dunder): ['has_error']
+
+== signature change, one trigger per importer file ==
+subscript_call         -> cat='signature' has_attr=False value='<absent>' ncallers=1 error=False detail='callers affected (1)'
+getattr_call           -> cat='signature' has_attr=False value='<absent>' ncallers=0 error=False detail='callers affected (0)'
+getattr_bare           -> cat='signature' has_attr=False value='<absent>' ncallers=0 error=False detail='callers affected (0)'
+attribute_of_call      -> cat='signature' has_attr=False value='<absent>' ncallers=0 error=False detail='callers affected (0)'
+star_import            -> cat='signature' has_attr=False value='<absent>' ncallers=1 error=False detail='callers affected (1)'
+dynamic_attribute      -> cat='signature' has_attr=False value='<absent>' ncallers=0 error=False detail='callers affected (0)'
+setattr_call           -> cat='signature' has_attr=False value='<absent>' ncallers=0 error=False detail='callers affected (0)'
+clean_control          -> cat='signature' has_attr=False value='<absent>' ncallers=2 error=False detail='callers affected (2)'
+
+== deletion, one trigger per importer file ==
+subscript_call         -> cat='deleted' has_attr=False value='<absent>' ncallers=1 error=True detail='ERROR: 1 recorded caller(s)'
+getattr_call           -> cat='deleted' has_attr=False value='<absent>' ncallers=0 error=False detail='no callers recorded'
+getattr_bare           -> cat='deleted' has_attr=False value='<absent>' ncallers=0 error=False detail='no callers recorded'
+attribute_of_call      -> cat='deleted' has_attr=False value='<absent>' ncallers=0 error=False detail='no callers recorded'
+star_import            -> cat='deleted' has_attr=False value='<absent>' ncallers=1 error=True detail='ERROR: 1 recorded caller(s)'
+dynamic_attribute      -> cat='deleted' has_attr=False value='<absent>' ncallers=0 error=False detail='no callers recorded'
+setattr_call           -> cat='deleted' has_attr=False value='<absent>' ncallers=0 error=False detail='no callers recorded'
+clean_control          -> cat='deleted' has_attr=False value='<absent>' ncallers=2 error=True detail='ERROR: 2 recorded caller(s)'
+
+== trigger placed in the symbol's own file ==
+  mod.target       cat='signature' unknowable='<absent>'
+
+== caller record keys, by kind ==
+  mod.target: type=dict rec={'file': 'other.py', 'line': 1, 'in_symbol': 'other', 'kind': 'name'}
+  mod.target: type=dict rec={'file': 'other.py', 'line': 5, 'in_symbol': 'other.use', 'kind': 'call', 'args': ['1']}

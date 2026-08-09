@@ -1,0 +1,104 @@
+"""Evidence that callers_unknowable fires for the contract's stated reason.
+
+The 3t suite proves the guarantees. This probe shows the mechanism under
+them — the importer set actually computed, and the unresolved sites it
+intersects — plus the one clause of the importer-set definition that no 3t
+fixture exercises directly: "the symbol's own file".
+"""
+
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from analyzer.affected import _importer_files, compute_affected  # noqa: E402
+from analyzer.indexer import build_index  # noqa: E402
+
+IDENT = ["-c", "user.email=t@t.t", "-c", "user.name=t", "-c", "commit.gpgsign=false"]
+
+
+def build(root, revisions):
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", *IDENT, "init", "-q"], cwd=root, check=True)
+    shas, previous = [], set()
+    for i, files in enumerate(revisions):
+        for gone in sorted(previous - set(files)):
+            (root / gone).unlink()
+        for rel, src in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(src)
+        subprocess.run(["git", *IDENT, "add", "-A"], cwd=root, check=True)
+        subprocess.run(
+            ["git", *IDENT, "commit", "-q", "-m", f"r{i}", "--allow-empty"],
+            cwd=root, check=True,
+        )
+        shas.append(
+            subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                           capture_output=True, text=True, check=True).stdout.strip()
+        )
+        previous = set(files)
+    return shas
+
+
+def show(title, old_files, new_files, path):
+    root = Path(tempfile.mkdtemp()) / "repo"
+    old, new = build(root, [old_files, new_files])
+    index = build_index(root, old)
+    report = compute_affected(root, old, new)
+    row = next(r for r in report.rows if r.path.endswith(path))
+    olds = [r for r in index["symbols"] if r["path"] == row.path]
+    importers = _importer_files(index, olds, {})
+    unresolved = {u["file"]: u["reason"] for u in index["unresolved"]}
+
+    print(f"\n=== {title} ===")
+    print(f"  row              : {row.path}  category={row.category}")
+    print(f"  importer set     : {sorted(importers)}")
+    print(f"  unresolved(old)  : {unresolved or '{}'}")
+    print(f"  intersection     : {sorted(importers & set(unresolved))}")
+    print(f"  callers recorded : {len(row.callers)}")
+    print(f"  callers_unknowable = {row.callers_unknowable}")
+    print(f"  detail           : {row.detail!r}")
+
+
+MOD_OLD = "def target(a):\n    return a\n"
+MOD_NEW = "def target(a, b):\n    return a + b\n"
+
+# The clause no 3t fixture covers: the trigger lives in the symbol's OWN
+# file, and nothing imports that file at all. An empty importer-origins
+# answer must not read as a clean bill of health.
+show(
+    "own-file clause: star import inside the symbol's own module",
+    {"mod.py": "from os.path import *\n\n" + MOD_OLD},
+    {"mod.py": "from os.path import *\n\n" + MOD_NEW},
+    "mod.target",
+)
+
+# Same shape, own file clean, nothing imports it -> genuinely no signal.
+show(
+    "own-file control: no trigger anywhere, no importers",
+    {"mod.py": MOD_OLD},
+    {"mod.py": MOD_NEW},
+    "mod.target",
+)
+
+# G5's bare zero, shown through the mechanism rather than the assertion.
+BARE = "import mod\n\nTABLE = {}\n\n\ndef dispatch(k, v):\n    return TABLE[k](v)\n"
+show(
+    "importer-file clause: subscript_call in an importing file",
+    {"mod.py": MOD_OLD, "other.py": BARE},
+    {"mod.py": MOD_NEW, "other.py": BARE},
+    "mod.target",
+)
+
+# The re-export chain: app.py never names pkg.core, yet lands in the set.
+show(
+    "re-export chain: importer reaches the module only via the facade",
+    {"pkg/__init__.py": "from pkg.core import target\n", "pkg/core.py": MOD_OLD,
+     "app.py": 'from pkg import target\n\nREG = {"t": target}\n\n\ndef d(k, v):\n    return REG[k](v)\n'},
+    {"pkg/__init__.py": "from pkg.core import target\n", "pkg/core.py": MOD_NEW,
+     "app.py": 'from pkg import target\n\nREG = {"t": target}\n\n\ndef d(k, v):\n    return REG[k](v)\n'},
+    "core.target",
+)

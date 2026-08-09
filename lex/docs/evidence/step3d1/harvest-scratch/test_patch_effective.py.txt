@@ -1,0 +1,12 @@
+"""Control: proves the inject_imports_key plugin really reaches a test module
+that binds build_index with `from ... import ...` at import time."""
+from analyzer.indexer import build_index
+
+import mkfixture
+from pathlib import Path
+
+
+def test_injected_key_is_visible_to_a_test_module():
+    fx = mkfixture.build(Path(__file__).resolve().parent)
+    index = build_index(fx["repo"], fx["c1"])
+    assert "imports" in index, sorted(index)

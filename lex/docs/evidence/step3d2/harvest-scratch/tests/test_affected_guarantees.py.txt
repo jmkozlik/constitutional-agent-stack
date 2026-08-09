@@ -1,0 +1,619 @@
+"""One discriminating fixture per done_when guarantee of affected_symbols.
+
+Each guarantee that names an outcome boundary gets both sides of it: the
+fixture that must trip it and the nearest fixture that must not.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from conftest import (
+    CHANGE_CATEGORIES,
+    analyze,
+    call_sites,
+    caller_symbols,
+    line_of,
+    paths,
+    records_of_kind,
+    ref,
+    row_for,
+    rows_ending,
+    rows_for,
+    unknowable,
+)
+
+
+# ==========================================================================
+# G1 - an import added at the top of a file reports every symbol as moved,
+#      with no signature, body, or decorators row.
+# ==========================================================================
+
+G1_MOD = """\
+def alpha(a):
+    return a + 1
+
+
+def beta(b):
+    return b * 2
+
+
+class Gamma:
+    def method(self, x):
+        return x
+"""
+
+G1_MOD_SHIFTED = "import os\n\n" + G1_MOD
+
+G1_OTHER = """\
+from mod import alpha
+
+
+def consumer():
+    return alpha(1)
+"""
+
+
+def test_g1_added_import_reports_every_symbol_as_moved(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G1_MOD, "other.py": G1_OTHER},
+        {"mod.py": G1_MOD_SHIFTED, "other.py": G1_OTHER},
+    )
+    report = analyze(repo, old, new)
+
+    for path in ("mod.alpha", "mod.beta", "mod.Gamma"):
+        assert row_for(report, path).category == "moved", (
+            f"{path} shifted by an added import and must be reported moved; "
+            f"report carries {[(r.path, r.category) for r in report.rows]}"
+        )
+
+
+def test_g1_added_import_emits_no_change_row(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G1_MOD, "other.py": G1_OTHER},
+        {"mod.py": G1_MOD_SHIFTED, "other.py": G1_OTHER},
+    )
+    report = analyze(repo, old, new)
+
+    offending = [
+        (row.path, row.category)
+        for row in report.rows
+        if row.category in CHANGE_CATEGORIES
+    ]
+    assert offending == [], (
+        "a pure line shift must not be reported as a signature, body or "
+        f"decorators change, but got {offending}"
+    )
+
+
+def test_g1_boundary_a_real_edit_still_reports_a_change_row(two_rev_repo):
+    """The other side of G1: shifting is not an excuse to report nothing."""
+    edited = "import os\n\n" + G1_MOD.replace("return a + 1", "return a + 99")
+    repo, old, new = two_rev_repo(
+        {"mod.py": G1_MOD, "other.py": G1_OTHER},
+        {"mod.py": edited, "other.py": G1_OTHER},
+    )
+    report = analyze(repo, old, new)
+
+    assert row_for(report, "mod.alpha").category == "body"
+    assert row_for(report, "mod.beta").category == "moved"
+
+
+# ==========================================================================
+# G2 - a body only change reports the changed symbol with category body and
+#      empty callers, and no signature or body row for any of its callers.
+# ==========================================================================
+
+G2_MOD_OLD = """\
+def target():
+    return 1
+"""
+
+G2_MOD_NEW = """\
+def target():
+    return 2
+"""
+
+G2_OTHER = """\
+from mod import target
+
+
+def caller():
+    return target()
+"""
+
+
+@pytest.fixture
+def g2_report(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G2_MOD_OLD, "other.py": G2_OTHER},
+        {"mod.py": G2_MOD_NEW, "other.py": G2_OTHER},
+    )
+    return analyze(repo, old, new)
+
+
+def test_g2_body_change_is_categorised_body(g2_report):
+    assert row_for(g2_report, "mod.target").category == "body"
+
+
+def test_g2_body_change_carries_empty_callers(g2_report):
+    row = row_for(g2_report, "mod.target")
+    assert list(row.callers) == [], (
+        "a body only change does not reach callers, so the row's callers "
+        f"must be empty; got {row.callers!r}"
+    )
+
+
+def test_g2_body_change_emits_no_change_row_for_callers(g2_report):
+    offending = [
+        (row.path, row.category)
+        for row in g2_report.rows
+        if row.path == "other.caller" and row.category in {"signature", "body"}
+    ]
+    assert offending == [], (
+        "a callee body change must not be propagated to the caller as a "
+        f"signature or body row; got {offending}"
+    )
+
+
+# ==========================================================================
+# G3 - a signature change names every call site.
+# ==========================================================================
+
+G3_MOD_OLD = """\
+def target(a):
+    return a
+"""
+
+G3_MOD_NEW = """\
+def target(a, b):
+    return a + b
+"""
+
+G3_OTHER = """\
+from mod import target
+
+
+def use_one():
+    return target(1)
+"""
+
+G3_THIRD = """\
+import mod
+
+
+def use_two():
+    return mod.target(2)
+"""
+
+
+@pytest.fixture
+def g3_report(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G3_MOD_OLD, "other.py": G3_OTHER, "third.py": G3_THIRD},
+        {"mod.py": G3_MOD_NEW, "other.py": G3_OTHER, "third.py": G3_THIRD},
+    )
+    return analyze(repo, old, new)
+
+
+def test_g3_signature_change_names_every_call_site(g3_report):
+    row = row_for(g3_report, "mod.target")
+    assert row.category == "signature"
+
+    expected = {
+        ("other.py", line_of(G3_OTHER, "return target(1)")),
+        ("third.py", line_of(G3_THIRD, "mod.target(2)")),
+    }
+    assert call_sites(row) == expected, (
+        "every call site of a changed signature must be named; missing "
+        f"{expected - call_sites(row)}, unexpected "
+        f"{call_sites(row) - expected}"
+    )
+
+
+def test_g3_call_sites_name_their_enclosing_symbol(g3_report):
+    row = row_for(g3_report, "mod.target")
+    enclosing = caller_symbols(row)
+    assert any("use_one" in name for name in enclosing), enclosing
+    assert any("use_two" in name for name in enclosing), enclosing
+
+
+def test_g3_caller_records_use_the_declared_kind_vocabulary(g3_report):
+    row = row_for(g3_report, "mod.target")
+    kinds = {ref(record, "kind") for record in row.callers}
+    assert kinds <= {"call", "name"}, f"undeclared reference kinds: {kinds}"
+
+
+def test_g3_call_site_records_carry_their_args_as_written(g3_report):
+    row = row_for(g3_report, "mod.target")
+    written = sorted(
+        list(ref(record, "args")) for record in records_of_kind(row, "call")
+    )
+    assert written == [["1"], ["2"]], (
+        f"args must be recorded as written; got {written}"
+    )
+
+
+def test_g3_boundary_uninvolved_symbol_is_not_named(two_rev_repo):
+    """The other side of G3: 'every' must not degrade into 'everything'."""
+    bystander = """\
+def unrelated():
+    return 0
+"""
+    repo, old, new = two_rev_repo(
+        {
+            "mod.py": G3_MOD_OLD,
+            "other.py": G3_OTHER,
+            "bystander.py": bystander,
+        },
+        {
+            "mod.py": G3_MOD_NEW,
+            "other.py": G3_OTHER,
+            "bystander.py": bystander,
+        },
+    )
+    report = analyze(repo, old, new)
+    row = row_for(report, "mod.target")
+    files = {file for file, _ in call_sites(row)}
+    assert "bystander.py" not in files, (
+        f"a file that never references the symbol must not be named; got {files}"
+    )
+
+
+# ==========================================================================
+# G4 - deleting a symbol with recorded callers is an error, not a silent
+#      success.
+# ==========================================================================
+
+G4_MOD_OLD = """\
+def target():
+    return 1
+
+
+def keep():
+    return 0
+"""
+
+G4_MOD_NEW = """\
+def keep():
+    return 0
+"""
+
+G4_OTHER = """\
+from mod import target
+
+
+def caller():
+    return target()
+"""
+
+
+def test_g4_delete_with_callers_is_an_error(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G4_MOD_OLD, "other.py": G4_OTHER},
+        {"mod.py": G4_MOD_NEW, "other.py": G4_OTHER},
+    )
+    report = analyze(repo, old, new)
+
+    row = row_for(report, "mod.target")
+    assert row.category == "deleted"
+    assert row.error is True, (
+        "deleting a symbol that recorded callers still reference is an "
+        f"error; row was {row!r}"
+    )
+    assert report.has_error is True
+
+
+def test_g4_delete_with_callers_still_names_them(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G4_MOD_OLD, "other.py": G4_OTHER},
+        {"mod.py": G4_MOD_NEW, "other.py": G4_OTHER},
+    )
+    report = analyze(repo, old, new)
+
+    row = row_for(report, "mod.target")
+    assert call_sites(row) == {
+        ("other.py", line_of(G4_OTHER, "return target()")),
+    }
+
+
+G4_CONTROL_MOD_OLD = """\
+def orphan():
+    return 1
+
+
+def keep():
+    return 0
+"""
+
+G4_CONTROL_MOD_NEW = """\
+def keep():
+    return 0
+"""
+
+G4_CONTROL_OTHER = """\
+from mod import keep
+
+
+def caller():
+    return keep()
+"""
+
+
+def test_g4_boundary_delete_without_callers_is_not_an_error(two_rev_repo):
+    """The other side of G4: the error is caused by callers, not by deletion."""
+    repo, old, new = two_rev_repo(
+        {"mod.py": G4_CONTROL_MOD_OLD, "other.py": G4_CONTROL_OTHER},
+        {"mod.py": G4_CONTROL_MOD_NEW, "other.py": G4_CONTROL_OTHER},
+    )
+    report = analyze(repo, old, new)
+
+    row = row_for(report, "mod.orphan")
+    assert row.category == "deleted"
+    assert row.error is False, (
+        "no recorded callers means no error, per the iff in the errors "
+        f"clause; row was {row!r}"
+    )
+    assert report.has_error is False
+
+
+# ==========================================================================
+# G5 - a signature change to a symbol whose importer set carries unresolved
+#      sites reports callers_unknowable, never a bare zero.
+# ==========================================================================
+
+G5_MOD_OLD = """\
+def target(a):
+    return a
+"""
+
+G5_MOD_NEW = """\
+def target(a, b):
+    return a + b
+"""
+
+# other.py imports mod, so it is in target's importer set, and dispatches
+# through a subscript call, which the trigger catalog lists as an
+# unresolved site.  It never names target, so an analyzer that only counts
+# resolved edges reports zero callers here - the bare zero the guarantee
+# forbids.
+G5_OTHER_BARE = """\
+import mod
+
+TABLE = {}
+
+
+def dispatch(key, value):
+    return TABLE[key](value)
+"""
+
+# Same importer set defect, but one edge is resolvable, so the flag has to
+# survive alongside a non-empty caller list rather than standing in for it.
+G5_OTHER_PARTIAL = """\
+import mod
+
+TABLE = {"t": mod.target}
+
+
+def dispatch(key, value):
+    return TABLE[key](value)
+"""
+
+G5_OTHER_CLEAN = """\
+from mod import target
+
+
+def use(value):
+    return target(value)
+"""
+
+
+def _g5_report(two_rev_repo, other_source, name):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G5_MOD_OLD, "other.py": other_source},
+        {"mod.py": G5_MOD_NEW, "other.py": other_source},
+        name=name,
+    )
+    return analyze(repo, old, new)
+
+
+def test_g5_never_reports_a_bare_zero(two_rev_repo):
+    """An empty caller list is only honest when the flag admits the gap."""
+    report = _g5_report(two_rev_repo, G5_OTHER_BARE, "g5_bare")
+
+    row = row_for(report, "mod.target")
+    assert row.category == "signature"
+    assert list(row.callers) == [], (
+        f"fixture invalid: no edge to target is resolvable here, got "
+        f"{row.callers!r}"
+    )
+    assert unknowable(row) is True, (
+        "zero callers reported without the unknowable flag is exactly the "
+        f"bare zero the guarantee forbids; row was {row!r}"
+    )
+
+
+def test_g5_flag_survives_a_partially_resolved_caller_list(two_rev_repo):
+    report = _g5_report(two_rev_repo, G5_OTHER_PARTIAL, "g5_partial")
+
+    row = row_for(report, "mod.target")
+    assert row.category == "signature"
+    assert unknowable(row) is True, (
+        "the importer set carries a subscript_call site, so the caller list "
+        f"cannot be claimed complete; row was {row!r}"
+    )
+
+
+def test_g5_boundary_clean_importer_set_does_not_set_flag(two_rev_repo):
+    """The other side of G5: the flag must mean something."""
+    report = _g5_report(two_rev_repo, G5_OTHER_CLEAN, "g5_clean")
+
+    row = row_for(report, "mod.target")
+    assert row.category == "signature"
+    assert call_sites(row) == {
+        ("other.py", line_of(G5_OTHER_CLEAN, "return target(value)")),
+    }
+    assert unknowable(row) is False, (
+        "no unresolved site exists in this importer set, so the flag must "
+        f"stay unset; row was {row!r}"
+    )
+
+
+# ==========================================================================
+# G6 - deleting a symbol with no recorded callers but unresolved sites in
+#      its importer set reports callers_unknowable.
+# ==========================================================================
+
+G6_MOD_OLD = """\
+def target():
+    return 1
+
+
+def keep():
+    return 2
+"""
+
+G6_MOD_NEW = """\
+def keep():
+    return 2
+"""
+
+# importer.py imports mod - so it is in target's importer set - references
+# only keep, and dispatches through a subscript call.  target therefore has
+# no recorded callers and an unresolved importer site.
+G6_IMPORTER = """\
+import mod
+
+TABLE = {"k": mod.keep}
+
+
+def dispatch(key):
+    return TABLE[key]()
+"""
+
+
+@pytest.fixture
+def g6_report(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        {"mod.py": G6_MOD_OLD, "importer.py": G6_IMPORTER},
+        {"mod.py": G6_MOD_NEW, "importer.py": G6_IMPORTER},
+    )
+    return analyze(repo, old, new)
+
+
+def test_g6_delete_without_callers_but_unresolved_sites_sets_flag(g6_report):
+    row = row_for(g6_report, "mod.target")
+    assert row.category == "deleted"
+    assert list(row.callers) == [], (
+        f"fixture invalid: target was expected to have no callers, got "
+        f"{row.callers!r}"
+    )
+    assert unknowable(row) is True, (
+        "a deletion with an unresolved importer site cannot be claimed safe; "
+        f"row was {row!r}"
+    )
+
+
+def test_g6_unknowable_deletion_is_not_promoted_to_an_error(g6_report):
+    """The errors clause is an iff: no recorded callers, no error."""
+    row = row_for(g6_report, "mod.target")
+    assert row.error is False, (
+        "Row.error is specified as set iff the old index records callers; "
+        f"this row records none, so it must be unset. row was {row!r}"
+    )
+
+
+# ==========================================================================
+# G7 - callers_unknowable fires through a re-export chain: an importer
+#      reaching the symbol's module only via a package facade, carrying an
+#      unresolved site, sets the flag.
+# ==========================================================================
+
+G7_PKG_INIT = """\
+from pkg.core import target
+"""
+
+G7_CORE_OLD = """\
+def target(a):
+    return a
+"""
+
+G7_CORE_NEW = """\
+def target(a, b):
+    return a + b
+"""
+
+# app.py never names pkg.core.  It reaches target only through the package
+# facade, and carries a subscript_call site.
+G7_APP_UNRESOLVED = """\
+from pkg import target
+
+REGISTRY = {"t": target}
+
+
+def dispatch(key, value):
+    return REGISTRY[key](value)
+"""
+
+G7_APP_CLEAN = """\
+from pkg import target
+
+
+def run(value):
+    return target(value)
+"""
+
+
+def _g7_files(core_source, app_source):
+    return {
+        "pkg/__init__.py": G7_PKG_INIT,
+        "pkg/core.py": core_source,
+        "app.py": app_source,
+    }
+
+
+def test_g7_unknowable_fires_through_a_re_export_chain(two_rev_repo):
+    repo, old, new = two_rev_repo(
+        _g7_files(G7_CORE_OLD, G7_APP_UNRESOLVED),
+        _g7_files(G7_CORE_NEW, G7_APP_UNRESOLVED),
+    )
+    report = analyze(repo, old, new)
+
+    found = rows_ending(report, ".target")
+    assert len(found) == 1, (
+        f"expected one row for the changed symbol; report carries {paths(report)}"
+    )
+    row = found[0]
+    assert row.category == "signature"
+    assert unknowable(row) is True, (
+        "app.py reaches the symbol's module only through the pkg facade and "
+        f"carries an unresolved site, so the flag must fire; row was {row!r}"
+    )
+
+
+def test_g7_re_exported_symbol_uses_its_defining_module_path(two_rev_repo):
+    """The dotted path names where the symbol is defined, not re-exported."""
+    repo, old, new = two_rev_repo(
+        _g7_files(G7_CORE_OLD, G7_APP_UNRESOLVED),
+        _g7_files(G7_CORE_NEW, G7_APP_UNRESOLVED),
+    )
+    report = analyze(repo, old, new)
+    assert rows_for(report, "pkg.core.target"), (
+        f"report carries {paths(report)}"
+    )
+
+
+def test_g7_boundary_clean_facade_importer_does_not_set_flag(two_rev_repo):
+    """The other side of G7: the facade alone is not grounds for the flag."""
+    repo, old, new = two_rev_repo(
+        _g7_files(G7_CORE_OLD, G7_APP_CLEAN),
+        _g7_files(G7_CORE_NEW, G7_APP_CLEAN),
+    )
+    report = analyze(repo, old, new)
+
+    found = rows_ending(report, ".target")
+    assert len(found) == 1, f"report carries {paths(report)}"
+    assert unknowable(found[0]) is False, (
+        "a re-export chain with no unresolved site must not set the flag; "
+        f"row was {found[0]!r}"
+    )

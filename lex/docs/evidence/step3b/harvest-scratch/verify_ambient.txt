@@ -1,0 +1,10 @@
+$ python --version
+Python 3.13.13
+
+$ python -m pytest
+[36m[1m=========================== short test summary info ============================[0m
+[31mERROR[0m tests/test_fence.py
+[31mERROR[0m tests/test_join.py
+[31mERROR[0m tests/test_speccc.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!!
+[31m============================== [31m[1m3 errors[0m[31m in 0.07s[0m[31m ===============================[0m

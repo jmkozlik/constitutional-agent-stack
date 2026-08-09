@@ -1,0 +1,258 @@
+"""harness/dispatch.py — the deterministic hands.
+
+Everything a dispatch does EXCEPT the model call: worktree, fence, packet
+delivery, the compiled prompt, harvest, gate, record, teardown. The
+non-deterministic half (spawning the agent) stays with the operator, so
+the hands are testable and the same for every caller — CLI or interface.
+"""
+
+import json
+import subprocess
+import sys
+
+import pytest
+
+from harness import dispatch, join
+from tests.conftest import PROJECT_ROOT, commit_all, git
+from tests.test_join import SPEC_SURFACED, SURFACED_FILES, make_join_fixture
+
+
+def prepared(tmp_path, node="base", role="executor"):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    (tmp_path / "identities").mkdir(exist_ok=True)
+    for r in ("executor", "tester"):
+        (tmp_path / "identities" / f"{r}.md").write_text(
+            (PROJECT_ROOT / "harness" / "identities" / f"{r}.md").read_text()
+        )
+    ctx = dispatch.prepare(
+        node, role=role, repo=repo, specs=specs,
+        commit=git(repo, "rev-parse", "HEAD"),
+        dispatch_id="t1", root=tmp_path / "dispatches",
+    )
+    return ctx, repo
+
+
+def test_prepare_lands_a_fenced_worktree_with_the_packet(tmp_path):
+    ctx, repo = prepared(tmp_path)
+    try:
+        worktree = ctx["worktree"]
+        assert (worktree / ".harness" / "packet.md").exists()
+        assert (worktree / ".harness" / "fence.json").exists()
+        assert (worktree / ".harness" / "out").is_dir()
+        assert (worktree / ".harness" / "scratch").is_dir()
+        # the packet delivered is the packet the manifest claims
+        trailer = (worktree / ".harness" / "packet.md").read_text().rstrip("\n").rsplit("\n", 1)[-1]
+        assert ctx["packet_hash"] in trailer
+        assert len(ctx["fence_sha256"]) == 64
+        # out-of-scope files are read-only
+        assert not (worktree / "core" / "b.py").stat().st_mode & 0o200
+    finally:
+        dispatch.teardown(ctx)
+
+
+def test_prepare_compiles_the_prompt_and_carries_no_law(tmp_path):
+    ctx, repo = prepared(tmp_path)
+    try:
+        prompt = ctx["prompt"]
+        # operational only: it points at the packet and the environment
+        assert str(ctx["worktree"] / ".harness" / "packet.md") in prompt
+        assert "interpreter" in prompt.lower()
+        # F3: the prompt carries no contract — that lives in the packet
+        for law in ("done_when", "attestation.md", "REQUEST_MEM:", "write scope"):
+            assert law not in prompt
+    finally:
+        dispatch.teardown(ctx)
+
+
+def test_prepare_is_deterministic(tmp_path):
+    # Same repo, same commit, two dispatches: every compiled value must
+    # match. Only the dispatch id (and so the paths) may differ.
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    (tmp_path / "identities").mkdir(exist_ok=True)
+    for r in ("executor", "tester"):
+        (tmp_path / "identities" / f"{r}.md").write_text(
+            (PROJECT_ROOT / "harness" / "identities" / f"{r}.md").read_text()
+        )
+    sha = git(repo, "rev-parse", "HEAD")
+
+    def once(did):
+        return dispatch.prepare(
+            "base", role="executor", repo=repo, specs=specs, commit=sha,
+            dispatch_id=did, root=tmp_path / "dispatches",
+        )
+
+    ctx1 = once("d1")
+    ctx2 = once("d2")
+    try:
+        for key in ("packet_hash", "fence_sha256", "spec_plan_hash",
+                    "dispatch_plan_hash", "commit", "delta"):
+            assert ctx1[key] == ctx2[key], key
+    finally:
+        dispatch.teardown(ctx1)
+        dispatch.teardown(ctx2)
+
+
+def test_prepare_tester_role_fences_all_tracked_writes(tmp_path):
+    ctx, repo = prepared(tmp_path, role="tester")
+    try:
+        fence = json.loads((ctx["worktree"] / ".harness" / "fence.json").read_text())
+        assert fence["allowed"] == {}
+        assert fence["role"] == "tester"
+    finally:
+        dispatch.teardown(ctx)
+
+
+def test_harvest_collects_artifacts_stores_code_inert_and_gates(tmp_path):
+    ctx, repo = prepared(tmp_path)
+    try:
+        out = ctx["worktree"] / ".harness" / "out"
+        (out / "attestation.md").write_text("# Attestation\n\nATTEST\n")
+        (out / "tests").mkdir()
+        (out / "tests" / "test_x.py").write_text("def test_x():\n    assert True\n")
+        (ctx["worktree"] / ".harness" / "scratch" / "probe.py").write_text("x = 1\n")
+        evidence = tmp_path / "evidence"
+        result = dispatch.harvest(ctx, evidence=evidence)
+        assert result["gate"] == "clean"
+        assert (evidence / "harvest-out" / "attestation.md").exists()
+        # harvested code is stored inert — evidence is never indexable source
+        assert (evidence / "harvest-out" / "tests" / "test_x.py.txt").exists()
+        assert not (evidence / "harvest-out" / "tests" / "test_x.py").exists()
+        assert (evidence / "harvest-scratch" / "probe.py.txt").exists()
+        record = json.loads((evidence / "dispatch_record_t1.json").read_text())
+        assert record["generator"].startswith("harness.dispatch")
+        assert record["packet_hash"] == ctx["packet_hash"]
+        assert record["role"] == "executor"
+    finally:
+        dispatch.teardown(ctx)
+
+
+def test_harvest_skips_vcs_and_cache_noise(tmp_path):
+    # First real use (3d-1) built fixture git repos under scratch; a naive
+    # rglob harvested 100+ .git objects and __pycache__ blobs as "evidence".
+    ctx, repo = prepared(tmp_path)
+    try:
+        scratch = ctx["worktree"] / ".harness" / "scratch"
+        (scratch / "fixture" / ".git" / "objects" / "ab").mkdir(parents=True)
+        (scratch / "fixture" / ".git" / "objects" / "ab" / "cdef").write_bytes(b"\x01\x02")
+        (scratch / "fixture" / ".git" / "config").write_text("[core]\n")
+        (scratch / "__pycache__").mkdir()
+        (scratch / "__pycache__" / "m.cpython-313.pyc").write_bytes(b"\x00")
+        (scratch / "keep.py").write_text("x = 1\n")
+        (scratch / "fixture" / "mod.py").write_text("y = 2\n")
+        evidence = tmp_path / "evidence3"
+        result = dispatch.harvest(ctx, evidence=evidence)
+        harvested = set(result["artifacts"])
+        assert any(a.endswith("keep.py.txt") for a in harvested)
+        assert any(a.endswith("fixture/mod.py.txt") for a in harvested)
+        assert not any(".git" in a for a in harvested)
+        assert not any("__pycache__" in a or a.endswith(".pyc") for a in harvested)
+    finally:
+        dispatch.teardown(ctx)
+
+
+def test_harvest_reports_a_gate_violation(tmp_path):
+    ctx, repo = prepared(tmp_path)
+    try:
+        target = ctx["worktree"] / "core" / "b.py"
+        target.chmod(0o644)
+        target.write_text("def beta():\n    return 99\n")
+        result = dispatch.harvest(ctx, evidence=tmp_path / "evidence2")
+        assert result["gate"] == "violated"
+        assert "core/b.py" in result["violations"]
+    finally:
+        dispatch.teardown(ctx)
+
+
+def test_teardown_releases_modes_and_removes_the_worktree(tmp_path):
+    ctx, repo = prepared(tmp_path)
+    worktree = ctx["worktree"]
+    dispatch.teardown(ctx)
+    assert not worktree.exists()
+    listed = subprocess.run(
+        ["git", "-C", str(repo), "worktree", "list"],
+        capture_output=True, text=True,
+    ).stdout
+    assert str(worktree) not in listed
+
+
+def test_cli_prepare_emits_manifest_json(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    (tmp_path / "identities").mkdir(exist_ok=True)
+    for r in ("executor", "tester"):
+        (tmp_path / "identities" / f"{r}.md").write_text(
+            (PROJECT_ROOT / "harness" / "identities" / f"{r}.md").read_text()
+        )
+    result = subprocess.run(
+        [sys.executable, "-m", "harness.dispatch", "prepare", "base",
+         "--repo", str(repo), "--specs", str(specs),
+         "--commit", git(repo, "rev-parse", "HEAD"),
+         "--id", "t2", "--root", str(tmp_path / "d2")],
+        capture_output=True, text=True, cwd=PROJECT_ROOT,
+        env={"PATH": __import__("os").environ["PATH"],
+             "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+    assert result.returncode == 0, result.stderr
+    manifest = json.loads(result.stdout)
+    assert manifest["node"] == "base"
+    assert manifest["packet_hash"]
+    subprocess.run(
+        [sys.executable, "-m", "harness.dispatch", "teardown",
+         manifest["worktree"]],
+        capture_output=True, cwd=PROJECT_ROOT,
+        env={"PATH": __import__("os").environ["PATH"],
+             "PYTHONPATH": str(PROJECT_ROOT)},
+    )
+
+
+def test_f36_committed_handoff_survives_replay(tmp_path):
+    # F36 candidate 1: a handoff read at the pinned commit is part of what
+    # replay rebuilds from, so a packet carrying one stays reproducible.
+    # This is the property whose absence made two shipped packets DIVERGE.
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    (tmp_path / "identities").mkdir(exist_ok=True)
+    for r in ("executor", "tester"):
+        (tmp_path / "identities" / f"{r}.md").write_text(
+            (PROJECT_ROOT / "harness" / "identities" / f"{r}.md").read_text()
+        )
+    (repo / "handoff.md").write_text("Carried forward: the ruling you stopped on.\n")
+    sha = commit_all(repo, {}, "commit the handoff before building the packet")
+
+    from analyzer.indexer import build_index
+
+    plan = join.load_plan(specs)
+    index = build_index(repo, sha)
+    resolved = join.resolve_writes(plan, index)
+    packet = join.assemble_packet(
+        plan, index, resolved, "base", "executor",
+        identities_dir=tmp_path / "identities", repo=repo,
+        handoff_path="handoff.md",
+    )
+    assert "the ruling you stopped on" in packet
+    # rebuilt from the commit alone — no scratch file in sight
+    again = join.assemble_packet(
+        plan, index, resolved, "base", "executor",
+        identities_dir=tmp_path / "identities", repo=repo,
+        handoff_path="handoff.md",
+    )
+    assert packet == again
+
+
+def test_f36_uncommitted_handoff_path_is_refused(tmp_path):
+    specs, repo = make_join_fixture(tmp_path, SPEC_SURFACED, SURFACED_FILES)
+    (tmp_path / "identities").mkdir(exist_ok=True)
+    (tmp_path / "identities" / "executor.md").write_text(
+        (PROJECT_ROOT / "harness" / "identities" / "executor.md").read_text()
+    )
+    from analyzer.indexer import build_index
+
+    plan = join.load_plan(specs)
+    sha = git(repo, "rev-parse", "HEAD")
+    index = build_index(repo, sha)
+    resolved = join.resolve_writes(plan, index)
+    with pytest.raises(join.JoinError) as err:
+        join.assemble_packet(
+            plan, index, resolved, "base", "executor",
+            identities_dir=tmp_path / "identities", repo=repo,
+            handoff_path="never-committed.md",
+        )
+    assert "F36" in str(err.value)

@@ -1,0 +1,5 @@
+import mod
+
+
+def caller_three():
+    return mod.target(3)

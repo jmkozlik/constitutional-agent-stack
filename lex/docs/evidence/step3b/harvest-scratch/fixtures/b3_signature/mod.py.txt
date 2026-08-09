@@ -1,0 +1,6 @@
+def target(a, b):
+    return a
+
+
+def local_user():
+    return target(9)

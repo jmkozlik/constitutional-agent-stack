@@ -1,0 +1,5 @@
+import mod
+
+
+def d(n):
+    return getattr(mod,n)(1)
