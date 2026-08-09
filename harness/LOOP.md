@@ -341,6 +341,22 @@ Queue: 3b → 3c → F18 ratification → 3d → W05 restructure.
 
 ## Standing law
 
+- **Production-shaped tests.** A structural test constructs its subject
+  through the real production path (`dispatch.prepare`, the real manifest)
+  and asserts the property against what production emits — never against a
+  hand-built input shape the test author intended. (Ratified 2026-08-08
+  after the third instance in one session: a word-match test defeated by
+  the docstring explaining its own rule, a transcript test asserting a
+  string constant rather than the behaviour, and a registry test asserting
+  a context shape `prepare` never produces — which passed while the
+  registry recorded an empty write scope on every live dispatch.)
+- **Bookkeeping is subordinate to the wall.** No tracker, registry,
+  journal, or record step may crash, skip, or weaken a dispatch or its
+  teardown. Bookkeeping failures degrade to a journalled note; the fence,
+  the harvest, and the teardown always complete. (Ratified 2026-08-08.
+  finished-null, the F34 registry crash, the torn registry read, and the
+  skipped teardown are all one finding.)
+
 - **Fidelity binds the ruled text, never the blast radius.** When applying
   a ruling verbatim would destroy other ratified content, strike minimally,
   add the ruled text verbatim, and flag the composition. (Ratified from

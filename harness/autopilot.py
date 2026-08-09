@@ -302,7 +302,11 @@ class Conductor:
             self.journal.write("dispatch", node=node_id,
                                detail=str(context["worktree"]),
                                packet_hash=context["packet_hash"])
-            self.register(node_id, context)
+            try:
+                self.register(node_id, context)
+            except OSError as exc:
+                self.journal.write("note", node=node_id,
+                                   detail=f"registry not written: {exc}")
             staged = self.stage(node_id, context)
             if not staged.get("proven"):
                 self.journal.write("stop", node=node_id,
@@ -322,14 +326,24 @@ class Conductor:
             # happened first — a runner error, a REQUEST_MEM — threw away the
             # worker's own account of how it got there. The transcript is
             # archived the moment the worker returns, on every path.
-            self.archive_transcript(node_id, context, outcome)
+            try:
+                self.archive_transcript(node_id, context, outcome)
+            except OSError as exc:
+                # Doctrine: bookkeeping is subordinate to the wall. Losing
+                # the transcript is a note; it may not cost the harvest.
+                self.journal.write("note", node=node_id,
+                                   detail=f"transcript not archived: {exc}")
             # Rung two: the fence flagged `.venv` — my own provisioning
             # artifact — as a write outside the allowed set, and it was right
             # to. Staging cleans up after itself rather than the fence
             # growing an exemption: the worker is finished, the verify
             # channel has served its purpose, and the diff the gate sees is
             # then exactly the agent's work.
-            self.unstage(context)
+            try:
+                self.unstage(context)
+            except OSError as exc:
+                self.journal.write("note", node=node_id,
+                                   detail=f"unstage failed: {exc}")
             if outcome.get("returncode") != 0:
                 self.journal.write("stop", node=node_id, escalation="RUNNER_ERROR",
                                    detail=str(outcome.get("stderr"))[:400])
@@ -351,8 +365,13 @@ class Conductor:
                                    detail=ask)
                 return "stopped"
 
+            # finished, not just started: every autopilot record written
+            # before this carried finished=None, so the wall-clock of an
+            # unattended dispatch — the one number nobody was present to
+            # observe — could not be derived from its own record.
             harvest = dispatch.harvest(context, evidence=self.evidence_dir(node_id),
-                                       started=started)
+                                       started=started,
+                                       finished=time.strftime("%Y-%m-%dT%H:%M:%S%z"))
             if harvest.get("gate") != "clean":
                 self.journal.write(
                     "stop", node=node_id, escalation="FENCE_VIOLATION",

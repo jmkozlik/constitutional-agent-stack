@@ -675,3 +675,59 @@ def test_a_broken_registry_cannot_preempt_teardown(tmp_path, monkeypatch):
                         lambda ctx: torn_down.append(ctx))
     boss.run_node("gitio")
     assert torn_down, "the fence must be released even when bookkeeping fails"
+
+
+# --- ratified doctrine: bookkeeping is subordinate to the wall ---------------
+
+
+def test_a_record_carries_the_finish_time_of_an_unattended_dispatch(tmp_path,
+                                                                    monkeypatch):
+    """finished-null, named in the doctrine. Every autopilot record written
+    before this had finished=None, so the wall-clock of a dispatch nobody was
+    present to observe could not be derived from its own record."""
+    from harness import dispatch as real_dispatch
+
+    seen = {}
+    boss = conductor(tmp_path, run_id="f", gate_fn=lambda n: {"probes": [
+        {"probe": "p", "verdict": "sufficient", "missing": []}]})
+    boss.repo = tmp_path
+    boss.stage = lambda node, ctx: {"proven": True}
+    boss.runner = lambda *a, **k: {"returncode": 0, "stdout": "done", "stderr": ""}
+    monkeypatch.setattr(real_dispatch, "prepare", lambda *a, **k: {
+        "worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"})
+    monkeypatch.setattr(real_dispatch, "teardown", lambda ctx: {})
+    monkeypatch.setattr(real_dispatch, "harvest",
+                        lambda ctx, **kw: seen.update(kw) or {"gate": "clean"})
+    (tmp_path / "wt").mkdir()
+    boss.run_node("gitio")
+    assert seen.get("started") and seen.get("finished"), seen
+
+
+def test_a_failing_tracker_does_not_cost_the_harvest(tmp_path, monkeypatch):
+    """Doctrine, mechanised: the registry, the transcript and unstage all
+    degrade to a journalled note. finished-null, the F34 crash, the torn
+    read and the skipped teardown are one finding, so they get one rule."""
+    from harness import dispatch as real_dispatch
+
+    boss = conductor(tmp_path, run_id="b", gate_fn=lambda n: {"probes": [
+        {"probe": "p", "verdict": "sufficient", "missing": []}]})
+    boss.repo = tmp_path
+    boss.stage = lambda node, ctx: {"proven": True}
+    boss.runner = lambda *a, **k: {"returncode": 0, "stdout": "ok", "stderr": ""}
+
+    def boom(*a, **k):
+        raise OSError("disk gone")
+
+    boss.register = boom
+    boss.archive_transcript = boom
+    boss.unstage = boom
+    harvested = []
+    monkeypatch.setattr(real_dispatch, "prepare", lambda *a, **k: {
+        "worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"})
+    monkeypatch.setattr(real_dispatch, "teardown", lambda ctx: {})
+    monkeypatch.setattr(real_dispatch, "harvest",
+                        lambda ctx, **kw: harvested.append(1) or {"gate": "clean"})
+    assert boss.run_node("gitio") == "completed"
+    assert harvested, "three bookkeeping failures must not cost the harvest"
+    notes = [e.detail for e in boss.journal.events if e.kind == "note"]
+    assert len(notes) == 3
