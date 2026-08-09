@@ -153,8 +153,15 @@ def default_runner(prompt: str, worktree: Path, *, timeout=3600) -> dict:
     adds no permissions of its own: an agent that could widen its own fence
     would make the fence advisory.
     """
+    # `--permission-mode acceptEdits` is deliberate and is the one place
+    # autopilot touches a permission. In an interactive session the prompt is
+    # the containment; in a fenced worktree it is not, and the real
+    # containment is three-layered and already there: out-of-scope files are
+    # chmod'd read-only, a PreToolUse hook refuses writes outside the allowed
+    # set, and the diff gate checks afterwards independently. Without this the
+    # headless agent cannot write at all and every leg is a guaranteed dud.
     result = subprocess.run(
-        ["claude", "-p", prompt],
+        ["claude", "-p", prompt, "--permission-mode", "acceptEdits"],
         cwd=str(worktree), capture_output=True, text=True, timeout=timeout,
     )
     return {
@@ -250,7 +257,21 @@ class Conductor:
                                    detail=_first_request_mem(outcome["stdout"]))
                 return "stopped"
 
-            harvest = dispatch.harvest(context, started=started)
+            evidence = (self.repo / "docs" / "evidence" / "autopilot"
+                        / f"run-{self.run_id or 'adhoc'}" / node_id)
+            harvest = dispatch.harvest(context, evidence=evidence, started=started)
+            # Ruled, observability: the worker's own transcript archives at
+            # harvest from leg one onward. Without it a stop is a verdict
+            # with no account of how it was reached.
+            evidence.mkdir(parents=True, exist_ok=True)
+            (evidence / "worker-transcript.txt").write_text(
+                f"$ claude -p <prompt>  (cwd {context['worktree']})\n"
+                f"--- exit {outcome.get('returncode')}\n"
+                f"--- stdout\n{outcome.get('stdout', '')}\n"
+                f"--- stderr\n{outcome.get('stderr', '')}\n"
+            )
+            self.journal.write("transcript", node=node_id,
+                               detail=str(evidence / "worker-transcript.txt"))
             if harvest.get("gate") != "clean":
                 self.journal.write(
                     "stop", node=node_id, escalation="FENCE_VIOLATION",
@@ -301,7 +322,17 @@ class Conductor:
         blocking = []
         for probe in verdicts.get("probes") or []:
             for miss in probe.get("missing") or []:
-                if not any(f.lower() in miss.lower() for f in self.queued):
+                matched = next((f for f in self.queued
+                                if f.lower() in miss.lower()), None)
+                # Ruled: every miss is logged with the finding it matched, or
+                # `new`. The classification is then auditable per item rather
+                # than only in aggregate — a wrong class is visible.
+                self.journal.write(
+                    "classify", node=probe.get("probe", ""),
+                    detail=miss[:200], matched=matched or "new",
+                    blocking=matched is None,
+                )
+                if matched is None:
                     blocking.append({"probe": probe.get("probe"), "miss": miss})
         return blocking
 
@@ -374,6 +405,36 @@ class Conductor:
             try:
                 vault_entry(self.run_id, summary)
             except OSError as exc:      # a missing vault is not a lost run
+                self.journal.write("note", detail=f"vault entry not filed: {exc}")
+        return summary
+
+    def run_single(self, node_id: str) -> dict:
+        """One node, nothing downstream. The ladder's first rungs."""
+        self.check_authorization()
+        if not self.dry_run:
+            self.calibrate()
+        self.journal.write("run_start", detail=f"single node {node_id}",
+                           levels=[["single", [node_id]]], dry_run=self.dry_run)
+        state = self.run_node(node_id)
+        if state == "stopped":
+            self.stopped.add(node_id)     # no line to route: nothing downstream runs
+        elif state == "completed":
+            self.completed.add(node_id)
+        self.journal.write("run_end", detail=f"{node_id}: {state}")
+        summary = self.summary()
+        if not self.dry_run and self.run_id:
+            target = promote_journal(self.repo, self.journal, self.run_id)
+            paths = [str(target.relative_to(self.repo) / "journal.jsonl")]
+            node_dir = target / node_id
+            if node_dir.exists():
+                paths += [str(p.relative_to(self.repo))
+                          for p in sorted(node_dir.rglob("*")) if p.is_file()]
+            commit_evidence(self.repo, paths, dispatch_id=node_id,
+                            record_hash=self.authorized, journal=self.journal,
+                            branch=run_branch(self.repo, self.run_id))
+            try:
+                vault_entry(self.run_id, summary)
+            except OSError as exc:
                 self.journal.write("note", detail=f"vault entry not filed: {exc}")
         return summary
 
@@ -538,6 +599,8 @@ def main(argv=None) -> int:
                         help="walk the levels and record intent; spawn nothing")
     parser.add_argument("--max-parallel", type=int, default=3)
     parser.add_argument("--run-id", default=None)
+    parser.add_argument("--node", default=None,
+                        help="run one node only — the live ladder's first rungs")
     args = parser.parse_args(argv)
 
     run_id = args.run_id or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -548,7 +611,8 @@ def main(argv=None) -> int:
         run_id=run_id,
     )
     try:
-        summary = conductor.run()
+        summary = (conductor.run_single(args.node) if args.node
+                   else conductor.run())
     except AutopilotError as exc:
         print(f"autopilot: {exc}", file=sys.stderr)
         return 2

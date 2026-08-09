@@ -7,12 +7,32 @@ authority it was routing around is the one failure that would matter more
 than every dispatch it ever ran.
 """
 
+import ast
+import inspect
 import json
 
 import pytest
 
 from harness import autopilot, join
 from tests.conftest import PROJECT_ROOT
+
+
+def _tree():
+    """The module's AST. Ratified test law: structural assertions are made
+    against calls and imports, never against the presence of a word."""
+    return ast.parse(inspect.getsource(autopilot))
+
+
+def _called_names() -> set:
+    names = set()
+    for node in ast.walk(_tree()):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                names.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                names.add(func.attr)
+    return names
 
 
 def journal(tmp_path, name="run"):
@@ -84,15 +104,18 @@ def test_there_is_no_flag_that_skips_authorisation():
 def test_the_conductor_never_calls_the_confirm_gate():
     """Not because the gate is weak — because the gate belongs to the
     interactive path. If autopilot ever imported it, it would be one
-    monkeypatch away from answering its own ratification prompt."""
-    import inspect
+    monkeypatch away from answering its own ratification prompt.
 
-    source = inspect.getsource(autopilot)
-    import re
-
-    assert not re.search(r"^\s*(from|import)\s+lex", source, re.M), \
-        "autopilot must not import any part of the interactive path"
-    assert "confirm(" not in source
+    Ruled test law: asserted over the AST, so a mention in prose is not a
+    call and deleting the comment that explains a rule cannot make the rule
+    pass."""
+    for node in ast.walk(_tree()):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert not alias.name.startswith("lex"), alias.name
+        elif isinstance(node, ast.ImportFrom):
+            assert not (node.module or "").startswith("lex"), node.module
+    assert "confirm" not in _called_names()
 
 
 # --- stop-routing ------------------------------------------------------------
@@ -294,19 +317,21 @@ def test_a_non_evidence_path_is_refused_and_recorded(tmp_path):
 
 
 def test_autopilot_cannot_push():
-    """The ruling puts push outside autopilot. It is kept out by the absence
-    of the capability, not by a flag someone could set."""
-    import inspect
+    """The ruling puts push outside autopilot, and it is kept out by the
+    absence of the capability rather than by a flag.
 
-    import re
-
-    source = inspect.getsource(autopilot)
-    # Checked as a git argument, not as a word: the docstring that explains
-    # the rule says "push", and a test that cannot tell prose from a call
-    # would be satisfied by deleting the explanation.
-    for literal in (r"['\"]push['\"]", r"['\"]remote['\"]",
-                    r"['\"]origin['\"]", r"['\"]fetch['\"]"):
-        assert not re.search(literal, source), f"a git {literal} argument exists"
+    Ruled test law: the assertion walks call arguments in the AST. The
+    docstrings in this module say "push" while describing the rule; a
+    word-presence test could be satisfied by deleting the explanation, which
+    is the opposite of what it should reward."""
+    forbidden = {"push", "remote", "origin", "fetch"}
+    for node in ast.walk(_tree()):
+        if not isinstance(node, ast.Call):
+            continue
+        for arg in node.args:
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                assert arg.value not in forbidden, \
+                    f"{arg.value!r} is passed as a call argument"
 
 
 def test_journal_is_promoted_out_of_the_gitignored_directory(tmp_path):
@@ -327,3 +352,25 @@ def test_a_vault_entry_is_a_new_file_never_an_edit(tmp_path):
     assert path.name == "autopilot-run-0001.md"
     assert "GATE_BLOCKING" in path.read_text()
     assert list(ledger.iterdir()) == [path]
+
+
+
+def test_every_miss_is_logged_with_its_class(tmp_path):
+    """Ruled: per-miss classification logged — matched finding id or `new`."""
+    boss = conductor(tmp_path, queued_findings=["F4"])
+    boss.blocking_items({"probes": [{"probe": "p", "verdict": "sufficient_with_gaps",
+                                     "missing": ["the F4 coverage gap",
+                                                 "the index persistence schema"]}]})
+    classified = [e for e in boss.journal.events if e.kind == "classify"]
+    assert [e.data["matched"] for e in classified] == ["F4", "new"]
+    assert [e.data["blocking"] for e in classified] == [False, True]
+
+
+def test_the_worker_transcript_is_archived_at_harvest():
+    """Ruled, observability: from leg one onward. Asserted structurally —
+    the harvest path writes worker-transcript.txt."""
+    source = inspect.getsource(autopilot.Conductor.run_node)
+    tree = ast.parse(source.strip())
+    constants = {n.value for n in ast.walk(tree)
+                 if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    assert "worker-transcript.txt" in constants
