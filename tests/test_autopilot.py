@@ -366,11 +366,27 @@ def test_every_miss_is_logged_with_its_class(tmp_path):
     assert [e.data["blocking"] for e in classified] == [False, True]
 
 
-def test_the_worker_transcript_is_archived_at_harvest():
-    """Ruled, observability: from leg one onward. Asserted structurally —
-    the harvest path writes worker-transcript.txt."""
-    source = inspect.getsource(autopilot.Conductor.run_node)
-    tree = ast.parse(source.strip())
-    constants = {n.value for n in ast.walk(tree)
-                 if isinstance(n, ast.Constant) and isinstance(n.value, str)}
-    assert "worker-transcript.txt" in constants
+def test_the_transcript_survives_a_stop_that_happens_before_harvest(tmp_path):
+    """Leg one, D1. The transcript used to be written after harvest, so a
+    REQUEST_MEM stop — which returns first — threw away the worker's own
+    account of how it got there. That is the exact case the observability
+    order exists for, and leg one hit it on the first try."""
+    boss = conductor(tmp_path, run_id="t1")
+    boss.repo = tmp_path
+    context = {"worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"}
+    outcome = {"returncode": 0, "stdout": "REQUEST_MEM: the index schema",
+               "stderr": ""}
+    path = boss.archive_transcript("gitio", context, outcome)
+    assert path.exists() and "REQUEST_MEM" in path.read_text()
+    assert any(e.kind == "transcript" for e in boss.journal.events)
+
+
+def test_a_gate_that_passed_is_recorded_too(tmp_path):
+    """Leg one, D2. Only stops were journalled, so the record showed a
+    dispatch with nothing behind it saying what authorised the dispatch."""
+    boss = conductor(tmp_path, gate_fn=lambda n: {"probes": [
+        {"probe": "executor:gitio", "verdict": "sufficient", "missing": []}]})
+    boss.runner = lambda *a, **k: {"returncode": 1, "stderr": "stop here"}
+    boss.run_node("gitio")
+    gates = [e for e in boss.journal.events if e.kind == "gate"]
+    assert gates and "sufficient" in gates[0].detail

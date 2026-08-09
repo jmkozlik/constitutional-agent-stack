@@ -228,6 +228,15 @@ class Conductor:
 
         verdicts = self.gate(node_id)
         blocking = self.blocking_items(verdicts)
+        # Leg one, D2: only stops were journalled, so a dispatch appeared in
+        # the record with nothing showing what authorised it. A gate that
+        # passed is evidence too.
+        self.journal.write(
+            "gate", node=node_id,
+            detail=", ".join(f"{p.get('probe')}={p.get('verdict')}"
+                             for p in verdicts.get("probes") or []) or "(no probes)",
+            blocking=len(blocking),
+        )
         if not self._gate_clean(verdicts):
             self.journal.write(
                 "stop", node=node_id,
@@ -248,6 +257,11 @@ class Conductor:
                                detail=str(context["worktree"]),
                                packet_hash=context["packet_hash"])
             outcome = self.runner(context["prompt"], context["worktree"])
+            # Leg one, D1: this used to sit after harvest, so every stop that
+            # happened first — a runner error, a REQUEST_MEM — threw away the
+            # worker's own account of how it got there. The transcript is
+            # archived the moment the worker returns, on every path.
+            self.archive_transcript(node_id, context, outcome)
             if outcome.get("returncode") != 0:
                 self.journal.write("stop", node=node_id, escalation="RUNNER_ERROR",
                                    detail=str(outcome.get("stderr"))[:400])
@@ -257,21 +271,8 @@ class Conductor:
                                    detail=_first_request_mem(outcome["stdout"]))
                 return "stopped"
 
-            evidence = (self.repo / "docs" / "evidence" / "autopilot"
-                        / f"run-{self.run_id or 'adhoc'}" / node_id)
-            harvest = dispatch.harvest(context, evidence=evidence, started=started)
-            # Ruled, observability: the worker's own transcript archives at
-            # harvest from leg one onward. Without it a stop is a verdict
-            # with no account of how it was reached.
-            evidence.mkdir(parents=True, exist_ok=True)
-            (evidence / "worker-transcript.txt").write_text(
-                f"$ claude -p <prompt>  (cwd {context['worktree']})\n"
-                f"--- exit {outcome.get('returncode')}\n"
-                f"--- stdout\n{outcome.get('stdout', '')}\n"
-                f"--- stderr\n{outcome.get('stderr', '')}\n"
-            )
-            self.journal.write("transcript", node=node_id,
-                               detail=str(evidence / "worker-transcript.txt"))
+            harvest = dispatch.harvest(context, evidence=self.evidence_dir(node_id),
+                                       started=started)
             if harvest.get("gate") != "clean":
                 self.journal.write(
                     "stop", node=node_id, escalation="FENCE_VIOLATION",
@@ -284,6 +285,24 @@ class Conductor:
         finally:
             if context is not None:
                 dispatch.teardown(context)
+
+    def evidence_dir(self, node_id: str) -> Path:
+        return (self.repo / "docs" / "evidence" / "autopilot"
+                / f"run-{self.run_id or 'adhoc'}" / node_id)
+
+    def archive_transcript(self, node_id: str, context: dict, outcome: dict) -> Path:
+        """Ruled, observability: the worker's own account, from leg one onward."""
+        evidence = self.evidence_dir(node_id)
+        evidence.mkdir(parents=True, exist_ok=True)
+        path = evidence / "worker-transcript.txt"
+        path.write_text(
+            f"$ claude -p <prompt>  (cwd {context['worktree']})\n"
+            f"--- exit {outcome.get('returncode')}\n"
+            f"--- stdout\n{outcome.get('stdout', '')}\n"
+            f"--- stderr\n{outcome.get('stderr', '')}\n"
+        )
+        self.journal.write("transcript", node=node_id, detail=str(path))
+        return path
 
     def gate(self, node_id: str) -> dict:
         if self.gate_fn is not None:
