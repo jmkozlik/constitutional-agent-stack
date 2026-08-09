@@ -614,3 +614,64 @@ def test_the_registry_reads_a_context_whose_fence_is_a_path_not_a_mapping():
     assert autopilot._allowed_of({"fence": "/tmp/fence.json"}) == []
     assert autopilot._allowed_of({"fence": {"allowed": {"a.py": "x"}}}) == ["a.py"]
     assert autopilot._allowed_of({}) == []
+
+
+def test_the_registry_records_the_scope_a_real_prepare_hands_it(tmp_path):
+    """Review finding, and the second miss in the same place. The first fix
+    stopped the crash by reading a key the manifest does not have, so the
+    registry recorded an empty allowed set on every live dispatch — a
+    tracker that no longer crashes and no longer knows anything. This
+    asserts the shape `dispatch.prepare` actually returns."""
+    from harness import dispatch
+
+    prepared = dispatch.prepare("gitio", role="executor", repo=PROJECT_ROOT,
+                                specs="harness/specs")
+    try:
+        assert "fence_allowed" in prepared and prepared["fence_allowed"]
+        assert isinstance(prepared["fence"], str)     # a path, not a mapping
+        scope = autopilot._allowed_of(prepared)
+        assert scope == sorted(prepared["fence_allowed"])
+        assert scope, "the registry must record a non-empty write scope"
+    finally:
+        dispatch.teardown(prepared)
+
+
+def test_parallel_registration_does_not_lose_a_live_dispatch(tmp_path):
+    """Review finding: read-modify-write on one shared file from every
+    worker thread. Two nodes read {}, both write, one vanishes — and the
+    vanished one is a dispatch running unrecorded."""
+    import concurrent.futures
+
+    boss = conductor(tmp_path)
+    boss.repo = tmp_path
+    nodes = [f"n{i}" for i in range(12)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(lambda n: boss.register(
+            n, {"worktree": tmp_path / n, "fence_allowed": {f"{n}.py": "x"}}),
+            nodes))
+    live = json.loads(boss.registry_path().read_text())
+    assert sorted(live) == sorted(nodes), "a concurrent write lost a dispatch"
+
+
+def test_a_broken_registry_cannot_preempt_teardown(tmp_path, monkeypatch):
+    """Review finding: deregister ran first and unguarded in the finally, so
+    a registry error skipped teardown — leaving the fence's chmods applied
+    and the worktree behind, which breaks the next prepare for that node."""
+    from harness import dispatch as real_dispatch
+
+    boss = conductor(tmp_path, gate_fn=lambda n: {"probes": [
+        {"probe": "p", "verdict": "sufficient", "missing": []}]})
+    boss.repo = tmp_path
+    boss.stage = lambda node, ctx: {"proven": False, "why": "no"}
+
+    def broken(node_id):
+        raise RuntimeError("registry unreadable")
+
+    boss.deregister = broken
+    torn_down = []
+    monkeypatch.setattr(real_dispatch, "prepare", lambda *a, **k: {
+        "worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"})
+    monkeypatch.setattr(real_dispatch, "teardown",
+                        lambda ctx: torn_down.append(ctx))
+    boss.run_node("gitio")
+    assert torn_down, "the fence must be released even when bookkeeping fails"

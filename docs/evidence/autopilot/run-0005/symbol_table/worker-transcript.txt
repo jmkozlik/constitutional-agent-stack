@@ -1,0 +1,19 @@
+$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/symbol_table)
+--- exit 0
+--- stdout
+Validation-only dispatch complete — both done_when bullets ATTESTED, no defects filed, no source files touched.
+
+**What I delivered:**
+- `.harness/out/attestation.md` — both bullets ATTEST with verbatim command output:
+  - *Whitespace reformatting doesn't change body_hash*: probe reformats blank lines, indentation, operator spacing, and line wrapping across three symbols — all hashes identical; a control edit (`return 0` → `return 1`) does change the hash, so the probe isn't vacuous.
+  - *Ranges recomputed, never identity*: prepending 5 lines shifts every `start_line`/`end_line` by exactly 5 while `sig_hash`, `body_hash`, `decor_hash` and all other identity fields stay byte-identical; ranges match the current call's source and repeat calls reproduce identical records (stateless).
+- `.harness/out/defects.md` — none.
+- `.harness/scratch/handoff.md` — verified facts vs. interpretive claims, plus the rerunnable probes.
+
+**Lines to surface:**
+- Baseline suite: `449 passed, 1 skipped` before probing.
+- One verified boundary noted in the attestation: whitespace *inside a docstring* does change `body_hash` — deliberate per the module's documented stance (docstrings are body statements; their content is data, not formatting). I attested on the code-formatting reading of "reformatting whitespace"; if a verifier reads the bullet to cover docstring reflow, that's a spec-interpretation question, flagged in the handoff.
+- No REQUEST_MEM lines; nothing was missing for this pass.
+
+--- stderr
+

@@ -34,6 +34,7 @@ import dataclasses
 import json
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -230,6 +231,12 @@ class Conductor:
         self.stopped: set = set()
         self.completed: set = set()
         self.gate_inert = False
+        # The registry is one file mutated by every worker thread. Without
+        # this, two nodes read {}, both write, and one live dispatch vanishes
+        # from the record — or a reader catches a truncated write and the
+        # registry crashes the dispatch it exists to track, which is the
+        # failure this registry has already caused once.
+        self._registry_lock = threading.Lock()
         self.calibration_fn = calibration_fn
         self.run_id = run_id
 
@@ -357,7 +364,16 @@ class Conductor:
             return "completed"
         finally:
             if context is not None:
-                self.deregister(node_id)     # F34: cleared at teardown
+                # Teardown gets its own protection. Deregistering used to run
+                # first and unguarded, so a registry error skipped teardown
+                # entirely — leaving the fence's read-only chmods in place and
+                # the worktree behind, which then breaks the NEXT prepare for
+                # that node. Bookkeeping must never outrank releasing the wall.
+                try:
+                    self.deregister(node_id)     # F34: cleared at teardown
+                except Exception as exc:
+                    self.journal.write("note", node=node_id,
+                                       detail=f"deregister failed: {exc}")
                 dispatch.teardown(context)
 
     def evidence_dir(self, node_id: str) -> Path:
@@ -425,30 +441,50 @@ class Conductor:
     def registry_path(self) -> Path:
         return self.repo / REGISTRY
 
+    def _read_registry(self, path: Path) -> dict:
+        """A registry that cannot be read is empty, never fatal — it must not
+        be able to preempt teardown."""
+        try:
+            return json.loads(path.read_text()) if path.exists() else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _write_registry(self, path: Path, live: dict) -> None:
+        # Write-then-rename: a reader sees the old file or the new one, never
+        # a half-written one.
+        temp = path.with_suffix(".tmp")
+        temp.write_text(json.dumps(live, indent=2, sort_keys=True))
+        temp.replace(path)
+
     def register(self, node_id: str, context: dict) -> dict:
         """Record a live dispatch: which tree it owns and what it may write."""
         path = self.registry_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        live = json.loads(path.read_text()) if path.exists() else {}
-        live[node_id] = {
-            "worktree": str(context["worktree"]),
+        with self._registry_lock:
+            live = self._read_registry(path)
+            live[node_id] = {
+                "worktree": str(context["worktree"]),
             # Defensively read: prepare's context carries `fence` as a PATH
             # string, not a mapping. The first version assumed a dict and
             # took down both level-0 nodes on rung three — a registry that
             # crashes the dispatch it exists to track.
-            "allowed": sorted(_allowed_of(context)),
-            "packet_hash": context.get("packet_hash", ""),
-        }
-        path.write_text(json.dumps(live, indent=2, sort_keys=True))
+                "allowed": sorted(_allowed_of(context)),
+                "packet_hash": context.get("packet_hash", ""),
+            }
+            self._write_registry(path, live)
         self.journal.write("register", node=node_id, detail=str(context["worktree"]),
                            live=sorted(live))
         return live
 
     def deregister(self, node_id: str) -> dict:
         path = self.registry_path()
-        live = json.loads(path.read_text()) if path.exists() else {}
-        live.pop(node_id, None)
-        path.write_text(json.dumps(live, indent=2, sort_keys=True))
+        with self._registry_lock:
+            live = self._read_registry(path)
+            live.pop(node_id, None)
+            try:
+                self._write_registry(path, live)
+            except OSError:
+                pass          # never let bookkeeping outrank releasing the fence
         return live
 
     def unstage(self, context: dict) -> None:
@@ -755,11 +791,22 @@ def vault_entry(run_id: str, summary: dict, *, kind="run", ledger=None) -> Path:
 
 
 def _allowed_of(context: dict) -> list:
+    """The write scope, read from the key `dispatch.prepare` actually writes.
+
+    Twice now this has been wrong in the same place. First it assumed
+    `fence` was a mapping and crashed rung three; the fix stopped the crash
+    but read a key the manifest does not have, so the registry recorded an
+    empty allowed set for every live dispatch — a tracker that no longer
+    crashes and no longer knows anything. `prepare` puts the scope in
+    `fence_allowed` and `fence` is only a path (harness/dispatch.py:175-177).
+    """
+    allowed = context.get("fence_allowed")
+    if isinstance(allowed, dict):
+        return list(allowed)
     fence = context.get("fence")
     if isinstance(fence, dict):
         return list(fence.get("allowed") or {})
-    allowed = context.get("allowed")
-    return list(allowed or {}) if isinstance(allowed, dict) else []
+    return []
 
 
 def worker_class(ask: str) -> str:

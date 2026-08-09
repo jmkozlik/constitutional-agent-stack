@@ -1,0 +1,20 @@
+$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/reference_map)
+--- exit 0
+--- stdout
+Delivered. This was a validation-only dispatch (empty delta — all seeded surface entries already present), so I attested rather than implemented.
+
+**Summary of deliverables:**
+
+- `.harness/out/attestation.md` — three sections, all **ATTEST**, each with verbatim command + output:
+  1. *Every caller with file, line, enclosing symbol* — probe fixture calling `src.config.load_settings` from module level, a function, and a method; all three records carry `file`/`line`/`in_symbol` (`src.app`, `src.app.boot`, `src.app.App.start`).
+  2. *Args as written, never traced* — `load_settings(p, strict=flag)` where `p` came from `compute_path()` records `['p', 'strict=flag']`; probe asserts no traced origin leaks into args.
+  3. *Ambiguous recorded, not dropped* — opaque-receiver `worker.load()` emitted against `src.config.Loader.load` with `ambiguous: True` and note `"attribute name match; receiver not statically resolvable"`.
+- `.harness/out/defects.md` — **none**.
+- `.harness/scratch/handoff.md` — verified facts vs interpretive claims, re-run instructions.
+
+**Evidence baseline:** declared verify command `.venv/bin/python -m pytest` → 449 passed, 1 skipped; refs subset → 59 passed; probe `.harness/scratch/validate_done_when.py` exits 0, run entirely through the surface callables.
+
+**Fence:** no tracked file modified (`git status --porcelain` shows only pre-existing untracked `.venv`); writes confined to `.harness/scratch/` and `.harness/out/`. No `REQUEST_MEM` lines — the compiled packet state matched disk everywhere I checked.
+
+--- stderr
+

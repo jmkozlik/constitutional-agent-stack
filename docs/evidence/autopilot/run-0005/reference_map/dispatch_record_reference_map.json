@@ -1,0 +1,35 @@
+{
+  "artifacts": [
+    "harvest-out/attestation.md",
+    "harvest-out/defects.md",
+    "harvest-scratch/handoff.md",
+    "harvest-scratch/validate_done_when.py.txt"
+  ],
+  "commit": "c734ce52451af00181b7264d81573c4029096964",
+  "delta_at_dispatch": "delta: empty (validation-only)",
+  "dispatch_id": "reference_map",
+  "dispatch_plan_hash": "66e648664216",
+  "fence_allowed": {
+    "analyzer/refs.py": "exists@c80ec692"
+  },
+  "fence_sha256": "68839a63f8a916928160a60c89189a8e6e22968fc790f69184d12be849b3fde7",
+  "finished": null,
+  "gate": "clean",
+  "generator": "harness.dispatch/1",
+  "node": "reference_map",
+  "packet_delivery": "file (.harness/packet.md, sha256 bbb298108b40f8f6\u2026)",
+  "packet_hash": "79c51ba032d1",
+  "reads_out_of_packet": [
+    {
+      "path": "tests/test_refs.py",
+      "tool": "Read",
+      "ts": 1786237663
+    }
+  ],
+  "record": "dispatch",
+  "role": "executor",
+  "self_served_misses": 1,
+  "spec_plan_hash": "66e648664216",
+  "started": "2026-08-08T21:06:23-0400",
+  "violations": []
+}

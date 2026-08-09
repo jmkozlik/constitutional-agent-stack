@@ -1,0 +1,55 @@
+"""Probe for done_when bullet 1: reformatting whitespace must not change body_hash.
+
+Two sources with identical code semantics, differing only in whitespace
+formatting: blank lines, indentation width, spaces around operators,
+line-wrapped expressions, trailing whitespace.
+"""
+from analyzer.symbols import extract_symbols
+
+ORIGINAL = b"""\
+class Widget:
+    def area(self, w, h):
+        total = w * h
+        if total > 0:
+            return total
+        return 0
+
+
+def helper(x):
+    return [i * 2 for i in range(x)]
+"""
+
+REFORMATTED = (
+    b"class Widget:\n"
+    b"\n"
+    b"  def area(self, w, h):\n"
+    b"\n"
+    b"      total   =   w*h   \n"
+    b"      if (total >\n"
+    b"              0):\n"
+    b"          return   total\n"
+    b"      return 0\n"
+    b"\n"
+    b"\n"
+    b"\n"
+    b"def helper( x ):\n"
+    b"    return [ i*2\n"
+    b"             for i in range( x ) ]\n"
+)
+
+a = {r["path"]: r for r in extract_symbols(ORIGINAL, "src/w.py")}
+b = {r["path"]: r for r in extract_symbols(REFORMATTED, "src/w.py")}
+
+assert a.keys() == b.keys(), (a.keys(), b.keys())
+for path in sorted(a):
+    same = a[path]["body_hash"] == b[path]["body_hash"]
+    print(f"{path}: body_hash {a[path]['body_hash']} == {b[path]['body_hash']} -> {same}")
+    assert same, path
+
+# Control: an actual body edit MUST change the hash (the probe is not vacuous).
+EDITED = ORIGINAL.replace(b"return 0", b"return 1")
+c = {r["path"]: r for r in extract_symbols(EDITED, "src/w.py")}
+changed = a["src.w.Widget.area"]["body_hash"] != c["src.w.Widget.area"]["body_hash"]
+print(f"control (real edit changes hash): {changed}")
+assert changed
+print("PROBE 1 OK")

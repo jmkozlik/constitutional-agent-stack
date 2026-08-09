@@ -1,0 +1,31 @@
+{
+  "artifacts": [
+    "harvest-out/attestation.md",
+    "harvest-out/defects.md",
+    "harvest-scratch/handoff.md",
+    "harvest-scratch/probe_ranges.py.txt",
+    "harvest-scratch/probe_whitespace.py.txt"
+  ],
+  "commit": "c734ce52451af00181b7264d81573c4029096964",
+  "delta_at_dispatch": "delta: empty (validation-only)",
+  "dispatch_id": "symbol_table",
+  "dispatch_plan_hash": "66e648664216",
+  "fence_allowed": {
+    "analyzer/modpath.py": "exists@f585b83b",
+    "analyzer/symbols.py": "exists@b3689cbc"
+  },
+  "fence_sha256": "a9aaca0a5857596dabf76bf6ec1b358559e959a738832e33327f412b27330c40",
+  "finished": null,
+  "gate": "clean",
+  "generator": "harness.dispatch/1",
+  "node": "symbol_table",
+  "packet_delivery": "file (.harness/packet.md, sha256 62e89320d2fad28d\u2026)",
+  "packet_hash": "0b86db190129",
+  "reads_out_of_packet": [],
+  "record": "dispatch",
+  "role": "executor",
+  "self_served_misses": 0,
+  "spec_plan_hash": "66e648664216",
+  "started": "2026-08-08T21:03:42-0400",
+  "violations": []
+}
