@@ -1,6 +1,0 @@
-$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/gitio)
---- exit 1
---- stdout
-
---- stderr
-stop here

@@ -381,12 +381,99 @@ def test_the_transcript_survives_a_stop_that_happens_before_harvest(tmp_path):
     assert any(e.kind == "transcript" for e in boss.journal.events)
 
 
-def test_a_gate_that_passed_is_recorded_too(tmp_path):
+def test_a_gate_that_passed_is_recorded_too(tmp_path, monkeypatch):
     """Leg one, D2. Only stops were journalled, so the record showed a
     dispatch with nothing behind it saying what authorised the dispatch."""
     boss = conductor(tmp_path, gate_fn=lambda n: {"probes": [
         {"probe": "executor:gitio", "verdict": "sufficient", "missing": []}]})
+    # repo := tmp_path. The first version left this at the real repo, so the
+    # transcript landed in docs/evidence/ — invisible in the main checkout,
+    # and caught the moment it ran inside the fence. A test that writes
+    # outside its tmp_path is a test with a side effect.
+    boss.repo = tmp_path
+    boss.stage = lambda node, ctx: {"proven": True}
     boss.runner = lambda *a, **k: {"returncode": 1, "stderr": "stop here"}
+    from harness import dispatch as real_dispatch
+
+    monkeypatch.setattr(real_dispatch, "prepare", lambda *a, **k: {
+        "worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"})
+    monkeypatch.setattr(real_dispatch, "teardown", lambda ctx: {})
     boss.run_node("gitio")
     gates = [e for e in boss.journal.events if e.kind == "gate"]
     assert gates and "sufficient" in gates[0].detail
+
+
+# --- the ratified provisioning law -------------------------------------------
+
+
+def test_staging_refuses_when_the_module_resolves_outside_the_worktree(
+        tmp_path, monkeypatch):
+    """The USING-style preflight, and the trap it exists for: an editable
+    install makes the wrong tree import silently, so 'it ran' is not proof
+    it ran against the code under test."""
+    boss = conductor(tmp_path, run_id="s1")
+    boss.repo = tmp_path
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+
+        class R:
+            returncode = 0
+            stdout = "USING interpreter /x/python\nUSING analyzer /elsewhere/analyzer/gitio.py"
+            stderr = ""
+        return R()
+
+    # monkeypatch, not assignment: `autopilot.subprocess` IS the stdlib
+    # module, so assigning to it patches subprocess.run process-wide, and the
+    # restore in a finally block reads back the fake it just installed. The
+    # first version of this test poisoned every other test in the suite.
+    monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
+    result = boss.stage("gitio", {"worktree": worktree})
+    assert result["proven"] is False
+    assert "did not resolve inside the worktree" in result["why"]
+    assert len(calls) == 1, "the verify command must not run after a bad preflight"
+
+
+def test_a_failing_verify_command_stops_before_any_spawn(tmp_path, monkeypatch):
+    from harness import dispatch as real_dispatch
+
+    boss = conductor(tmp_path, run_id="s2")
+    boss.stage = lambda node, ctx: {"proven": False, "why": "pytest exits 1"}
+    boss.gate_fn = lambda n: {"probes": [{"probe": "p", "verdict": "sufficient",
+                                          "missing": []}]}
+    spawned = []
+    boss.runner = lambda *a, **k: spawned.append(1) or {"returncode": 0}
+    monkeypatch.setattr(real_dispatch, "prepare", lambda *a, **k: {
+        "worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"})
+    monkeypatch.setattr(real_dispatch, "teardown", lambda ctx: {})
+
+    assert boss.run_node("gitio") == "stopped"
+    assert spawned == [], "an unproven promise must not reach a worker"
+    assert boss.journal.escalations()[-1].escalation == "PROVISIONING_FAILED"
+
+
+def test_the_runner_grants_the_permissions_the_protocol_requires():
+    """Leg one's worker could not run a single Python invocation and
+    correctly refused to attest. Asserted over the AST per the test law."""
+    tree = ast.parse(inspect.getsource(autopilot.default_runner))
+    argv = [n for n in ast.walk(tree) if isinstance(n, ast.List)]
+    flat = [c.value for lst in argv for c in lst.elts
+            if isinstance(c, ast.Constant)]
+    assert "--allowedTools" in flat
+    assert any("Bash" in v for v in flat if isinstance(v, str))
+
+
+# --- worker classification as testimony ---------------------------------------
+
+
+def test_worker_classification_is_recorded_but_does_not_route(tmp_path):
+    """Ruled: testimony, not verdict. A worker that could talk itself out of
+    a stop would be self-ratifying, so the conductor routes on
+    corroboration-vs-new and keeps the divergence as a metric."""
+    assert autopilot.worker_class("REQUEST_MEM: (non-blocking) the channel") == \
+        "non-blocking"
+    assert autopilot.worker_class("REQUEST_MEM: the schema") == "unclassified"
+    assert autopilot.worker_class("REQUEST_MEM: (blocking) the schema") == "blocking"

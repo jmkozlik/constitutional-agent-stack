@@ -60,7 +60,26 @@ ESCALATIONS = {
                   "per-provider calibration is mandatory)",
     "GATE_BLOCKING": "the gate reported a BLOCKING-classed item (ruled: "
                      "blocking items stop the line they gate)",
+    "PROVISIONING_FAILED": "staging could not prove the verify channel the "
+                           "packet promises (ruled: the packet may only "
+                           "promise what staging has proven)",
 }
+
+# Ruled provisioning law: "Stage executes the verify command in the worktree
+# pre-spawn; a USING-style preflight (interpreter + worktree-resolved
+# imports) records in the journal."
+#
+# USING-style is a deliberate callback: staging a check against another tree
+# and having it silently import THIS one is a trap this project has already
+# fallen into once. The preflight prints the interpreter and the resolved
+# module file, and staging asserts the module resolved inside the worktree —
+# an unproven promise is the thing the law forbids.
+VERIFY_COMMAND = (".venv/bin/python", "-m", "pytest", "-q")
+PREFLIGHT_PROBE = (
+    "import sys, analyzer.gitio as m; "
+    "print('USING interpreter', sys.executable); "
+    "print('USING analyzer', m.__file__)"
+)
 
 # Ruled: "evidence-class commits only (harvests, records, reports, inbound
 # handoffs), local, run branch, dispatch-id + record hash in the message,
@@ -160,8 +179,14 @@ def default_runner(prompt: str, worktree: Path, *, timeout=3600) -> dict:
     # chmod'd read-only, a PreToolUse hook refuses writes outside the allowed
     # set, and the diff gate checks afterwards independently. Without this the
     # headless agent cannot write at all and every leg is a guaranteed dud.
+    # Ruled: "the runner grants the tool permissions the protocol requires."
+    # The protocol requires reading the packet, writing inside the fence, and
+    # running the verify command — so Bash is granted. Leg one proved the
+    # cost of not granting it: the worker could not run a single Python
+    # invocation and correctly refused to attest anything.
     result = subprocess.run(
-        ["claude", "-p", prompt, "--permission-mode", "acceptEdits"],
+        ["claude", "-p", prompt, "--permission-mode", "acceptEdits",
+         "--allowedTools", "Bash,Read,Write,Edit,Glob,Grep"],
         cwd=str(worktree), capture_output=True, text=True, timeout=timeout,
     )
     return {
@@ -256,6 +281,13 @@ class Conductor:
             self.journal.write("dispatch", node=node_id,
                                detail=str(context["worktree"]),
                                packet_hash=context["packet_hash"])
+            staged = self.stage(node_id, context)
+            if not staged.get("proven"):
+                self.journal.write("stop", node=node_id,
+                                   escalation="PROVISIONING_FAILED",
+                                   detail=staged.get("why", "")[:400])
+                return "stopped"
+
             outcome = self.runner(context["prompt"], context["worktree"])
             # Leg one, D1: this used to sit after harvest, so every stop that
             # happened first — a runner error, a REQUEST_MEM — threw away the
@@ -267,8 +299,20 @@ class Conductor:
                                    detail=str(outcome.get("stderr"))[:400])
                 return "stopped"
             if "REQUEST_MEM:" in (outcome.get("stdout") or ""):
+                ask = _first_request_mem(outcome["stdout"])
+                # Ruled: the worker's own classification is TESTIMONY, not a
+                # verdict. It is recorded, it governs the worker's own
+                # workaround conduct, and it does not route the conductor —
+                # which routes on corroboration-vs-new. Divergence between
+                # the two is kept because it is a calibration metric.
+                testimony = worker_class(ask)
+                self.journal.write(
+                    "testimony", node=node_id, detail=ask,
+                    worker_says=testimony, conductor_routes="stop",
+                    diverged=testimony == "non-blocking",
+                )
                 self.journal.write("stop", node=node_id, escalation="REQUEST_MEM",
-                                   detail=_first_request_mem(outcome["stdout"]))
+                                   detail=ask)
                 return "stopped"
 
             harvest = dispatch.harvest(context, evidence=self.evidence_dir(node_id),
@@ -303,6 +347,50 @@ class Conductor:
         )
         self.journal.write("transcript", node=node_id, detail=str(path))
         return path
+
+    def stage(self, node_id: str, context: dict) -> dict:
+        """Prove the verify channel before the packet promises it.
+
+        Implementation choice is the operator's, gated by the proof: the
+        repo's virtualenv is linked into the worktree so the packet's literal
+        `.venv/bin/python -m pytest` is true there rather than rewritten into
+        something the packet never said. The preflight then proves the
+        interpreter resolves `analyzer` from the WORKTREE and not from the
+        repo — an editable install makes that failure silent, which is
+        exactly how it bit the time-travel check.
+        """
+        worktree = Path(context["worktree"])
+        # Absolute, deliberately: a relative target resolves against the
+        # worktree and makes the link point at itself — proved by staging
+        # this against a real worktree before spending a leg on it.
+        link, source = worktree / ".venv", (self.repo / ".venv").resolve()
+        if source.exists() and not link.exists():
+            link.symlink_to(source)
+
+        preflight = subprocess.run(
+            [str(link / "bin" / "python"), "-c", PREFLIGHT_PROBE],
+            cwd=str(worktree), capture_output=True, text=True,
+        )
+        using = preflight.stdout.strip()
+        resolved_here = str(worktree) in using
+        self.journal.write("preflight", node=node_id, detail=using[:300],
+                           resolved_in_worktree=resolved_here)
+        if preflight.returncode != 0 or not resolved_here:
+            return {"proven": False,
+                    "why": f"preflight did not resolve inside the worktree: "
+                           f"{using or preflight.stderr.strip()[:200]}"}
+
+        verify = subprocess.run(list(VERIFY_COMMAND), cwd=str(worktree),
+                                capture_output=True, text=True, timeout=900)
+        tail = (verify.stdout or verify.stderr).strip().splitlines()[-1:] or [""]
+        self.journal.write("stage_verify", node=node_id,
+                           detail=f"{' '.join(VERIFY_COMMAND)} -> exit "
+                                  f"{verify.returncode}: {tail[0][:120]}")
+        if verify.returncode != 0:
+            return {"proven": False,
+                    "why": f"the verify command the packet promises exits "
+                           f"{verify.returncode} in the worktree: {tail[0][:200]}"}
+        return {"proven": True, "verify": tail[0]}
 
     def gate(self, node_id: str) -> dict:
         if self.gate_fn is not None:
@@ -578,6 +666,16 @@ def vault_entry(run_id: str, summary: dict, *, kind="run", ledger=None) -> Path:
                     f"`{event.get('node') or '(run)'}` — {event.get('because','')}")
     path.write_text("\n".join(body) + "\n")
     return path
+
+
+def worker_class(ask: str) -> str:
+    """What the worker said about its own ask. Testimony, never a verdict."""
+    lowered = ask.lower()
+    if "(non-blocking)" in lowered or "non-blocking" in lowered:
+        return "non-blocking"
+    if "(blocking)" in lowered:
+        return "blocking"
+    return "unclassified"
 
 
 def _first_request_mem(text: str) -> str:
