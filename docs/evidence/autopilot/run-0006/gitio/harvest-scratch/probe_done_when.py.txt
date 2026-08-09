@@ -1,0 +1,114 @@
+"""Validation probes for the gitio done_when bullets.
+
+Run from the worktree root: .venv/bin/python .harness/scratch/probe_done_when.py
+Builds throwaway fixtures under .harness/scratch/fixtures/ and observes only
+the values returned by the surface callables (per observed_through).
+"""
+
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from analyzer.gitio import GitError, changed_files, list_py_files, read_files, resolve_commit
+
+SCRATCH = Path(__file__).parent / "fixtures"
+GIT_ID = ["-c", "user.email=t@t.t", "-c", "user.name=t"]
+
+
+def git(repo, *args):
+    subprocess.run(["git", "-C", str(repo), *GIT_ID, *args], check=True, capture_output=True)
+
+
+def build_fixture():
+    if SCRATCH.exists():
+        shutil.rmtree(SCRATCH)
+    src = SCRATCH / "src"
+    src.mkdir(parents=True)
+    git(src, "init", "-q")
+    (src / "pkg").mkdir()
+    (src / "pkg" / "a.py").write_bytes(b"x = 1\ny = 2\n")
+    (src / "pkg" / "b.py").write_bytes(b"def f():\n    return 3\n")
+    (src / "notes.txt").write_bytes(b"not python\n")
+    git(src, "add", "-A")
+    git(src, "commit", "-qm", "c1")
+    old = subprocess.run(
+        ["git", "-C", str(src), "rev-parse", "HEAD"], check=True, capture_output=True
+    ).stdout.decode().strip()
+    # rename b.py -> renamed.py with identical content (100% similarity),
+    # so git would otherwise detect it as a rename
+    git(src, "mv", "pkg/b.py", "pkg/renamed.py")
+    git(src, "commit", "-qm", "c2 rename")
+    new = subprocess.run(
+        ["git", "-C", str(src), "rev-parse", "HEAD"], check=True, capture_output=True
+    ).stdout.decode().strip()
+    # bare clone: a repo with git objects but NO checkout anywhere
+    bare = SCRATCH / "bare.git"
+    subprocess.run(
+        ["git", "clone", "-q", "--bare", str(src), str(bare)], check=True, capture_output=True
+    )
+    return src, bare, old, new
+
+
+def main():
+    src, bare, old, new = build_fixture()
+    print(f"fixture: src={src} bare={bare}")
+    print(f"old={old}")
+    print(f"new={new}")
+
+    # --- Bullet 1: read_files / list_py_files answer from git objects, never a checkout
+    checkout_files = [p for p in bare.rglob("*") if p.suffix == ".py"]
+    print(f"\n[1] bare repo contains no .py working files: {checkout_files == []} ({checkout_files})")
+    listed = list_py_files(bare, new)
+    print(f"[1] list_py_files(bare, new) = {listed}")
+    assert listed == ["pkg/a.py", "pkg/renamed.py"], listed
+    blobs = read_files(bare, new, ["pkg/a.py", "pkg/renamed.py"])
+    print(f"[1] read_files(bare, new, ...) = {blobs}")
+    assert blobs == {
+        "pkg/a.py": b"x = 1\ny = 2\n",
+        "pkg/renamed.py": b"def f():\n    return 3\n",
+    }, blobs
+    # old rev is also readable with no checkout of it anywhere
+    old_blobs = read_files(bare, old, ["pkg/b.py"])
+    print(f"[1] read_files(bare, old, ['pkg/b.py']) = {old_blobs}")
+    assert old_blobs == {"pkg/b.py": b"def f():\n    return 3\n"}, old_blobs
+    print("[1] PASS")
+
+    # --- Bullet 2: rename surfaces as delete + add, never a rename
+    ch = changed_files(bare, old, new)
+    print(f"\n[2] changed_files(bare, old, new) = {ch}")
+    assert set(ch) == {"pkg/b.py", "pkg/renamed.py"}, ch
+    assert ch["pkg/b.py"] == ([(1, 2)], []), ch  # pure delete: old side only
+    assert ch["pkg/renamed.py"] == ([], [(1, 2)]), ch  # pure add: new side only
+    print("[2] PASS: rename -> delete (old side only) + add (new side only)")
+
+    # --- Bullet 3: failing git command raises GitError, never a silent empty result
+    print()
+    cases = [
+        ("resolve_commit bad rev", lambda: resolve_commit(src, "no-such-rev")),
+        ("list_py_files bad rev", lambda: list_py_files(src, "no-such-rev")),
+        ("read_files missing path", lambda: read_files(src, new, ["pkg/missing.py"])),
+        ("changed_files bad rev", lambda: changed_files(src, "no-such-rev", new)),
+        # NOTE: an existing non-repo dir is no good here — this scratch tree is
+        # nested inside the worktree repo and `git -C` discovers upward, so the
+        # git command *succeeds*. Use a nonexistent dir: git itself fails.
+        ("resolve_commit bad repo dir", lambda: resolve_commit(SCRATCH / "absent", "HEAD")),
+        ("changed_files bad repo dir", lambda: changed_files(SCRATCH / "absent", "HEAD~1", "HEAD")),
+        ("read_files bad repo dir", lambda: read_files(SCRATCH / "absent", "HEAD", ["x.py"])),
+        ("list_py_files bad repo dir", lambda: list_py_files(SCRATCH / "absent", "HEAD")),
+    ]
+    for name, fn in cases:
+        try:
+            result = fn()
+        except GitError as e:
+            print(f"[3] {name}: GitError: {e}")
+        else:
+            print(f"[3] {name}: FAIL — returned {result!r} instead of raising")
+            sys.exit(1)
+    print("[3] PASS")
+
+    print("\nALL PROBES PASS")
+
+
+if __name__ == "__main__":
+    main()

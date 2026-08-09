@@ -1,0 +1,19 @@
+$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/gitio)
+--- exit 0
+--- stdout
+All three deliverables are written; the dispatch is complete.
+
+**Summary:** Validation-only dispatch for node `gitio` (empty delta). No code was changed. All three done_when bullets are **ATTESTED** with verbatim command evidence in `.harness/out/attestation.md`:
+
+1. **Objects, not checkouts** — `list_py_files` and `read_files` were run against a bare clone (a repo with no working tree anywhere) and returned correct listings and byte-exact blob contents, including at a rev checked out nowhere.
+2. **Rename = delete + add** — a 100%-similarity `git mv` (the case git would normally collapse into a rename) came back as `{'pkg/b.py': ([(1, 2)], []), 'pkg/renamed.py': ([], [(1, 2)])}` — pure delete plus pure add.
+3. **Failures raise GitError** — eight failure cases across all four callables (bad rev, missing path, nonexistent repo dir) all raised `GitError` naming the failed command; none returned an empty result.
+
+Packet-named verify command: `.venv/bin/python -m pytest` → **455 passed, 1 skipped**.
+
+Deliverables: `.harness/out/attestation.md`, `.harness/out/defects.md` (**none** filed), `.harness/scratch/handoff.md` (includes the rerunnable probe script path and one probe pitfall: an empty dir nested in the worktree can't fake "not a repo" because `git -C` discovers upward — a nonexistent dir is needed).
+
+No REQUEST_MEM lines and no fence denials to surface. One judgment call flagged for verifiers in the attestation: `read_files` on a missing path raises `GitError` even though `cat-file --batch` exits 0 (the miss is in-band), which I read as satisfying the bullet's "never a silent empty result" intent.
+
+--- stderr
+
