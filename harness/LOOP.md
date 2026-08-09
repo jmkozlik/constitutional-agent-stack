@@ -1,6 +1,40 @@
 # LOOP — standing state (first read of every session, last write of every session)
 
-**Updated:** 2026-08-08, after report 016. **THE GATE IS A LEVER** —
+**RULED — LEX v2, THE GOVERNMENT AUTOMATED (executes ruling B).** Four
+phases, ratified verbatim, text in `docs/lex-v2.md`. P1 the conductor
+(autopilot walks plan levels in parallel, clean gate = proceed, spawns,
+harvests, verifies, records, advances; **human absent between spec and
+law-escalation**). P2 port the offices as roles in eval-value order —
+**refuter first** (the anti-larp office), then integrator, then monarch
+(charter = the vault's `vision.md`, escalation classes as ruled), then
+observers + vote; each lands the way tester did. P3 the optimizer
+(per-node model/effort from the spec's `model:` field, budget caps per
+dispatch and per run, speed/price/tokens as a per-run knob). P4 the larp
+detector (seeded defects, the packets-vs-searching A/B, and **office
+ablations** — disable an office, measure the defect-escape delta). The
+vault becomes the permanent record; vision.md governs the monarch.
+**Timeline as ruled: P1 in days, P2 office-by-office over two weeks, and
+the 13th demos what is already real — not promises.**
+
+**P1 v0 IS IN** (`harness/autopilot.py`, 14 tests, 422 total). **Where
+the consent went, since it did not go away:** autopilot never calls the
+confirm gate — the unit of ratification moved from per-action to
+per-run. A human authorises one *compiled plan hash*; drift is re-checked
+**before every level**, and a changed hash stops the run because the
+thing they ratified no longer exists. `authorized_plan_hash` is a
+mandatory parameter and there is no flag that skips it — asserted
+structurally, and a second test asserts autopilot imports no part of
+`lex/` so it can never be one monkeypatch from answering its own prompt.
+Escalations are **typed and cite the standing law that produced them**
+(9 classes), so the queue a human wakes to is decisions-with-grounds, not
+a traceback. Stop-routing is inherited: a stopped node takes its
+transitive dependents and no siblings. Dry-run walks all 6 levels and
+spawns nothing; drift refusal fires on a wrong hash. **NOT yet proven:
+the live leg** — `default_runner` shells to `claude -p` in the fenced
+worktree (so the existing write/read fence hooks apply unchanged) and has
+never run. **THREE CALLS ARE YOURS, listed in report 017's next.**
+
+**Previous:** 2026-08-08, after report 016. **THE GATE IS A LEVER** —
 `python -m harness.gate`, ported from gate.js. Instrument continuity is
 enforced as BYTES: tests pin the preamble, the three probes, each
 `extra`, the verdict enum, and assert the built prompt is byte-identical

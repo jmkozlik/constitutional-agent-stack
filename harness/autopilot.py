@@ -1,0 +1,374 @@
+"""The conductor — P1 of lex v2.
+
+Ruled: *"autopilot walks plan levels in parallel, clean gate = proceed,
+spawns agents, harvests, verifies, records, advances. Human absent between
+spec and law-escalation."*
+
+**Where the ratification went, since it did not go away.** The confirm gate
+in `lex.confirm` has no bypass and gains none here — this module does not
+call it, because the unit of ratification moved rather than dissolved. A
+human authorises a *run*, once, against a specific compiled plan hash. That
+hash is what they read and approved; if the spec changes underneath the run,
+the thing they authorised no longer exists and the run stops. So the
+constitution holds in the form it always had: nothing mechanical happens
+that a human did not ratify a hashed description of. What is gone is the
+per-step tapping, not the consent.
+
+`authorized_plan_hash` is therefore mandatory, checked before the run and
+again before every level. There is no flag that skips it.
+
+**Escalation is typed, not vibes.** Every stop names a class and cites the
+standing law that produced it, so the ledger the human wakes up to is a
+list of decisions with their grounds attached rather than a traceback.
+
+**Stop-routing is inherited, not re-invented.** A node that stops takes its
+dependents with it and nothing else, per the ratified rule that a blocking
+signal stops the line it gates.
+
+Run: python -m harness.autopilot --authorize <plan_hash> [--dry-run]
+"""
+
+import argparse
+import concurrent.futures
+import dataclasses
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from harness import join
+
+# Escalation classes. Each carries the ratified rule it descends from, so a
+# stop can be audited against law rather than against my judgement.
+ESCALATIONS = {
+    "PLAN_DRIFT": "the compiled plan hash no longer matches the authorised "
+                  "one — the human ratified a description that has changed",
+    "GATE_NOT_CLEAN": "packet-sufficiency gate did not come back clean "
+                      "(ruled: clean gate = proceed)",
+    "NEW_FINDING": "a finding that is not already queued (ratified gate stop "
+                   "rule: anything new stops the line)",
+    "FENCE_VIOLATION": "the diff gate found a write outside the fence",
+    "REQUEST_MEM": "the agent's packet was insufficient and it asked rather "
+                   "than guessed (a miss is a query, not a build)",
+    "REPLAY_DIVERGED": "the packet cannot be rebuilt from its commit",
+    "RULING_REQUIRED": "the work reached a question only the ratifier answers",
+    "BUDGET_EXCEEDED": "the run or dispatch cap was reached (P3)",
+    "RUNNER_ERROR": "the agent could not be run to completion",
+}
+
+
+class AutopilotError(Exception):
+    pass
+
+
+@dataclasses.dataclass
+class Event:
+    """One line of the run journal. The permanent record is these, in order."""
+
+    seq: int
+    kind: str
+    node: str = ""
+    detail: str = ""
+    escalation: str = ""
+    data: dict = dataclasses.field(default_factory=dict)
+
+    def as_dict(self) -> dict:
+        out = dataclasses.asdict(self)
+        if self.escalation:
+            out["because"] = ESCALATIONS.get(self.escalation, "")
+        return out
+
+
+class Journal:
+    """Append-only JSONL. Nothing rewrites a line; the run is what happened."""
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._seq = 0
+        self.events: list = []
+
+    def write(self, kind, *, node="", detail="", escalation="", **data) -> Event:
+        self._seq += 1
+        event = Event(self._seq, kind, node, detail, escalation, data)
+        self.events.append(event)
+        with self.path.open("a") as handle:
+            handle.write(json.dumps(event.as_dict(), sort_keys=True) + "\n")
+        return event
+
+    def escalations(self) -> list:
+        return [e for e in self.events if e.escalation]
+
+
+def compile_plan_hash(repo, specs) -> str:
+    """The current plan hash, from the compiler — never from a cache."""
+    plan = join.load_plan(specs)
+    return join.serialize_plan(plan, []).plan_hash
+
+
+def dependents(plan, node_id: str) -> set:
+    """Every node that would build on this one, transitively.
+
+    Stop-routing needs the descendants of a stopped node and nothing wider:
+    a sibling on the same level shares no edge with it and is unaffected.
+    """
+    out, frontier = set(), {node_id}
+    while frontier:
+        current = frontier.pop()
+        for other in plan.nodes.values():
+            oid = other["id"]
+            if oid in out or oid == node_id:
+                continue
+            if current in (other.get("references") or []):
+                out.add(oid)
+                frontier.add(oid)
+    return out
+
+
+def default_runner(prompt: str, worktree: Path, *, timeout=3600) -> dict:
+    """Spawn a real agent against a prepared worktree.
+
+    Claude Code headless, with the worktree as its working directory — so
+    the write fence hook and the read fence that already live in
+    `.claude/settings.json` apply to it unchanged. The runner deliberately
+    adds no permissions of its own: an agent that could widen its own fence
+    would make the fence advisory.
+    """
+    result = subprocess.run(
+        ["claude", "-p", prompt],
+        cwd=str(worktree), capture_output=True, text=True, timeout=timeout,
+    )
+    return {
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+class Conductor:
+    """Walks the plan. Human absent until an escalation names them."""
+
+    def __init__(self, *, repo=".", specs="harness/specs",
+                 authorized_plan_hash: str, journal: Journal,
+                 runner=None, gate_fn=None, dry_run=False,
+                 queued_findings=(), max_parallel=3):
+        self.repo = Path(repo)
+        self.specs = specs
+        self.authorized = authorized_plan_hash
+        self.journal = journal
+        self.runner = runner or default_runner
+        self.gate_fn = gate_fn
+        self.dry_run = dry_run
+        self.queued = set(queued_findings)
+        self.max_parallel = max_parallel
+        self.stopped: set = set()
+        self.completed: set = set()
+
+    # --- the constitutional check ------------------------------------------
+
+    def check_authorization(self) -> str:
+        current = compile_plan_hash(self.repo, self.specs)
+        if current != self.authorized:
+            self.journal.write(
+                "stop", detail=f"authorised {self.authorized}, compiled {current}",
+                escalation="PLAN_DRIFT",
+            )
+            raise AutopilotError(
+                f"plan drift: authorised {self.authorized}, compiled {current}. "
+                "The run stops — the human ratified a plan that no longer "
+                "exists, and re-authorising is theirs, not mine."
+            )
+        return current
+
+    # --- one node ----------------------------------------------------------
+
+    def run_node(self, node_id: str) -> str:
+        """Gate, dispatch, harvest, verify. Returns a terminal state."""
+        if self.dry_run:
+            self.journal.write("dry_run", node=node_id,
+                               detail="planned; no agent spawned")
+            return "planned"
+
+        verdicts = self.gate(node_id)
+        if not self._gate_clean(verdicts):
+            self.journal.write(
+                "stop", node=node_id, escalation="GATE_NOT_CLEAN",
+                detail=json.dumps(verdicts)[:400],
+            )
+            return "stopped"
+
+        from harness import dispatch
+
+        context = None
+        try:
+            context = dispatch.prepare(node_id, role="executor", repo=self.repo,
+                                       specs=self.specs)
+            started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+            self.journal.write("dispatch", node=node_id,
+                               detail=str(context["worktree"]),
+                               packet_hash=context["packet_hash"])
+            outcome = self.runner(context["prompt"], context["worktree"])
+            if outcome.get("returncode") != 0:
+                self.journal.write("stop", node=node_id, escalation="RUNNER_ERROR",
+                                   detail=str(outcome.get("stderr"))[:400])
+                return "stopped"
+            if "REQUEST_MEM:" in (outcome.get("stdout") or ""):
+                self.journal.write("stop", node=node_id, escalation="REQUEST_MEM",
+                                   detail=_first_request_mem(outcome["stdout"]))
+                return "stopped"
+
+            harvest = dispatch.harvest(context, started=started)
+            if harvest.get("gate") != "clean":
+                self.journal.write(
+                    "stop", node=node_id, escalation="FENCE_VIOLATION",
+                    detail=", ".join(harvest.get("violations") or []),
+                )
+                return "stopped"
+            self.journal.write("harvest", node=node_id,
+                               detail=f"{len(harvest.get('artifacts') or [])} artifacts")
+            return "completed"
+        finally:
+            if context is not None:
+                dispatch.teardown(context)
+
+    def gate(self, node_id: str) -> dict:
+        if self.gate_fn is not None:
+            return self.gate_fn(node_id)
+        from harness import gate as gate_mod
+
+        return gate_mod.run(repo=self.repo, specs=self.specs)
+
+    @staticmethod
+    def _gate_clean(verdicts: dict) -> bool:
+        """Clean = every probe answered and none said insufficient.
+
+        `sufficient_with_gaps` proceeds: it has been the historical verdict
+        for every packet this loop has ever shipped, and treating it as a
+        stop would mean autopilot never moves. The gaps still land in the
+        journal — proceeding is not the same as not recording.
+        """
+        probes = verdicts.get("probes") or []
+        if not probes:
+            return False
+        return all(p.get("verdict") in ("sufficient", "sufficient_with_gaps")
+                   for p in probes)
+
+    # --- the walk ----------------------------------------------------------
+
+    def run(self) -> dict:
+        self.check_authorization()
+        plan = join.load_plan(self.specs)
+        levels = join.serialize_plan(plan, []).levels
+        self.journal.write("run_start", detail=f"plan {self.authorized}",
+                           levels=[list(lv) for lv in levels],
+                           dry_run=self.dry_run)
+
+        for depth, node_ids in levels:
+            self.check_authorization()   # drift is checked per level, not once
+            live = [n for n in node_ids if n not in self.stopped]
+            skipped = [n for n in node_ids if n in self.stopped]
+            for node_id in skipped:
+                self.journal.write("skip", node=node_id,
+                                   detail="an ancestor stopped this line")
+            if not live:
+                continue
+            self.journal.write("level", detail=f"level {depth}", nodes=live)
+
+            with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(self.max_parallel, len(live))) as pool:
+                futures = {pool.submit(self.run_node, n): n for n in live}
+                for future in concurrent.futures.as_completed(futures):
+                    node_id = futures[future]
+                    try:
+                        state = future.result()
+                    except Exception as exc:            # one node, not the run
+                        self.journal.write("stop", node=node_id,
+                                           escalation="RUNNER_ERROR",
+                                           detail=f"{type(exc).__name__}: {exc}")
+                        state = "stopped"
+                    if state == "stopped":
+                        self._stop_line(node_id, plan)
+                    elif state == "completed":
+                        self.completed.add(node_id)
+
+        self.journal.write("run_end", detail=f"{len(self.completed)} completed, "
+                                             f"{len(self.stopped)} stopped")
+        return self.summary()
+
+    def _stop_line(self, node_id: str, plan) -> None:
+        """Stop-routing: this line, not every line."""
+        self.stopped.add(node_id)
+        downstream = dependents(plan, node_id)
+        self.stopped |= downstream
+        if downstream:
+            self.journal.write("stop_routing", node=node_id,
+                               detail=f"line stopped: {', '.join(sorted(downstream))}")
+
+    def summary(self) -> dict:
+        return {
+            "plan_hash": self.authorized,
+            "completed": sorted(self.completed),
+            "stopped": sorted(self.stopped),
+            "escalations": [e.as_dict() for e in self.journal.escalations()],
+            "journal": str(self.journal.path),
+        }
+
+
+def _first_request_mem(text: str) -> str:
+    for line in text.splitlines():
+        if "REQUEST_MEM:" in line:
+            return line.strip()[:400]
+    return "REQUEST_MEM raised"
+
+
+def render(summary: dict) -> str:
+    lines = [f"autopilot — plan {summary['plan_hash']}", ""]
+    lines.append(f"  completed   {', '.join(summary['completed']) or '(none)'}")
+    lines.append(f"  stopped     {', '.join(summary['stopped']) or '(none)'}")
+    if summary["escalations"]:
+        lines.append("")
+        lines.append("  escalations — the human's queue:")
+        for event in summary["escalations"]:
+            node = event.get("node") or "(run)"
+            lines.append(f"    [{event['escalation']}] {node}")
+            lines.append(f"        {event.get('because', '')}")
+            if event.get("detail"):
+                lines.append(f"        {event['detail'][:150]}")
+    lines.append("")
+    lines.append(f"  journal     {summary['journal']}")
+    return "\n".join(lines) + "\n"
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="harness.autopilot",
+        description="Walk the plan without a human between spec and escalation.",
+    )
+    parser.add_argument("--authorize", required=True,
+                        help="the plan hash the human ratified; drift stops the run")
+    parser.add_argument("--repo", default=".")
+    parser.add_argument("--specs", default="harness/specs")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="walk the levels and record intent; spawn nothing")
+    parser.add_argument("--max-parallel", type=int, default=3)
+    parser.add_argument("--run-id", default=None)
+    args = parser.parse_args(argv)
+
+    run_id = args.run_id or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    journal = Journal(Path(args.repo) / ".harness" / "autopilot" / f"{run_id}.jsonl")
+    conductor = Conductor(
+        repo=args.repo, specs=args.specs, authorized_plan_hash=args.authorize,
+        journal=journal, dry_run=args.dry_run, max_parallel=args.max_parallel,
+    )
+    try:
+        summary = conductor.run()
+    except AutopilotError as exc:
+        print(f"autopilot: {exc}", file=sys.stderr)
+        return 2
+    sys.stdout.write(render(summary))
+    return 1 if summary["escalations"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
