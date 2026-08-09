@@ -605,3 +605,12 @@ def test_the_registry_is_cleared_even_when_a_node_stops(tmp_path, monkeypatch):
     boss.stage = lambda node, ctx: {"proven": False, "why": "nope"}
     boss.run_node("gitio")
     assert cleared == ["gitio"], "a stopped dispatch must not stay registered"
+
+
+def test_the_registry_reads_a_context_whose_fence_is_a_path_not_a_mapping():
+    """Rung three: `prepare` carries `fence` as a path string. The registry
+    assumed a mapping and crashed both level-0 nodes — a tracker that kills
+    what it tracks."""
+    assert autopilot._allowed_of({"fence": "/tmp/fence.json"}) == []
+    assert autopilot._allowed_of({"fence": {"allowed": {"a.py": "x"}}}) == ["a.py"]
+    assert autopilot._allowed_of({}) == []

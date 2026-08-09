@@ -432,8 +432,11 @@ class Conductor:
         live = json.loads(path.read_text()) if path.exists() else {}
         live[node_id] = {
             "worktree": str(context["worktree"]),
-            "allowed": sorted((context.get("fence") or {}).get("allowed", {})
-                              or context.get("allowed", {}) or {}),
+            # Defensively read: prepare's context carries `fence` as a PATH
+            # string, not a mapping. The first version assumed a dict and
+            # took down both level-0 nodes on rung three — a registry that
+            # crashes the dispatch it exists to track.
+            "allowed": sorted(_allowed_of(context)),
             "packet_hash": context.get("packet_hash", ""),
         }
         path.write_text(json.dumps(live, indent=2, sort_keys=True))
@@ -749,6 +752,14 @@ def vault_entry(run_id: str, summary: dict, *, kind="run", ledger=None) -> Path:
                     f"`{event.get('node') or '(run)'}` — {event.get('because','')}")
     path.write_text("\n".join(body) + "\n")
     return path
+
+
+def _allowed_of(context: dict) -> list:
+    fence = context.get("fence")
+    if isinstance(fence, dict):
+        return list(fence.get("allowed") or {})
+    allowed = context.get("allowed")
+    return list(allowed or {}) if isinstance(allowed, dict) else []
 
 
 def worker_class(ask: str) -> str:
