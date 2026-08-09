@@ -1,0 +1,8 @@
+{"data": {"dry_run": true, "levels": [["single", ["gitio"]]]}, "detail": "single node gitio", "escalation": "", "kind": "run_start", "node": "", "seq": 1}
+{"data": {}, "detail": "planned; no agent spawned", "escalation": "", "kind": "dry_run", "node": "gitio", "seq": 2}
+{"data": {}, "detail": "gitio: planned", "escalation": "", "kind": "run_end", "node": "", "seq": 3}
+{"data": {"inert": false, "model": "grok-4"}, "detail": "seeded-gutted packet -> insufficient", "escalation": "", "kind": "calibration", "node": "", "seq": 1}
+{"data": {"dry_run": false, "levels": [["single", ["gitio"]]]}, "detail": "single node gitio", "escalation": "", "kind": "run_start", "node": "", "seq": 2}
+{"data": {"packet_hash": "6fb455d430b1"}, "detail": "/Users/rokko/experiments/.lex-dispatches/gitio", "escalation": "", "kind": "dispatch", "node": "gitio", "seq": 3}
+{"because": "the agent's packet was insufficient and it asked rather than guessed (a miss is a query, not a build)", "data": {}, "detail": "REQUEST_MEM: (non-blocking) the verify channel for this validation-only dispatch \u2014 the packet says `verify with: .venv/bin/python -m pytest`, but no `.venv` exists in the worktree and every Python invocation is permission-denied in this session. Requesting the dispatcher run the verify command (or `python3 -m pytest tests/test_gitio.py`) at f4f2d9d and attach the output, or re-dispatch with execut", "escalation": "REQUEST_MEM", "kind": "stop", "node": "gitio", "seq": 4}
+{"data": {}, "detail": "gitio: stopped", "escalation": "", "kind": "run_end", "node": "", "seq": 5}
