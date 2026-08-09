@@ -55,7 +55,25 @@ ESCALATIONS = {
     "RULING_REQUIRED": "the work reached a question only the ratifier answers",
     "BUDGET_EXCEEDED": "the run or dispatch cap was reached (P3)",
     "RUNNER_ERROR": "the agent could not be run to completion",
+    "GATE_INERT": "the provider's gate did not stop on the seeded-gutted "
+                  "packet, so its verdicts are treated as no-gate (ruled: "
+                  "per-provider calibration is mandatory)",
+    "GATE_BLOCKING": "the gate reported a BLOCKING-classed item (ruled: "
+                     "blocking items stop the line they gate)",
 }
+
+# Ruled: "evidence-class commits only (harvests, records, reports, inbound
+# handoffs), local, run branch, dispatch-id + record hash in the message,
+# generator-authored. PUSH remains outside autopilot."
+#
+# An allowlist, not a denylist: a path autopilot has never been told it may
+# commit is a path it does not commit. The prefixes below are the four
+# named classes and nothing else.
+EVIDENCE_PREFIXES = (
+    "docs/evidence/",        # harvests, records, journals
+    "harness/reports/",      # reports
+)
+GENERATOR = ("harness.autopilot", "autopilot@lex.local")
 
 
 class AutopilotError(Exception):
@@ -152,7 +170,8 @@ class Conductor:
     def __init__(self, *, repo=".", specs="harness/specs",
                  authorized_plan_hash: str, journal: Journal,
                  runner=None, gate_fn=None, dry_run=False,
-                 queued_findings=(), max_parallel=3):
+                 queued_findings=(), max_parallel=3, calibration_fn=None,
+                 run_id=""):
         self.repo = Path(repo)
         self.specs = specs
         self.authorized = authorized_plan_hash
@@ -164,6 +183,9 @@ class Conductor:
         self.max_parallel = max_parallel
         self.stopped: set = set()
         self.completed: set = set()
+        self.gate_inert = False
+        self.calibration_fn = calibration_fn
+        self.run_id = run_id
 
     # --- the constitutional check ------------------------------------------
 
@@ -190,11 +212,21 @@ class Conductor:
                                detail="planned; no agent spawned")
             return "planned"
 
+        if self.gate_inert:
+            # Ruled: a provider whose gate is inert has its verdicts treated
+            # as no-gate. No-gate is not permission — it escalates.
+            self.journal.write("stop", node=node_id, escalation="GATE_INERT",
+                               detail="verdicts treated as no-gate")
+            return "stopped"
+
         verdicts = self.gate(node_id)
+        blocking = self.blocking_items(verdicts)
         if not self._gate_clean(verdicts):
             self.journal.write(
-                "stop", node=node_id, escalation="GATE_NOT_CLEAN",
-                detail=json.dumps(verdicts)[:400],
+                "stop", node=node_id,
+                escalation="GATE_BLOCKING" if blocking else "GATE_NOT_CLEAN",
+                detail=(json.dumps(blocking[:3]) if blocking
+                        else json.dumps(verdicts)[:400]),
             )
             return "stopped"
 
@@ -239,25 +271,63 @@ class Conductor:
 
         return gate_mod.run(repo=self.repo, specs=self.specs)
 
-    @staticmethod
-    def _gate_clean(verdicts: dict) -> bool:
-        """Clean = every probe answered and none said insufficient.
+    def _gate_clean(self, verdicts: dict) -> bool:
+        """Ruled: proceed unless `insufficient` or any BLOCKING-classed item.
 
-        `sufficient_with_gaps` proceeds: it has been the historical verdict
-        for every packet this loop has ever shipped, and treating it as a
-        stop would mean autopilot never moves. The gaps still land in the
-        journal — proceeding is not the same as not recording.
+        `sufficient_with_gaps` proceeds — it is the historical verdict for
+        every packet this loop has shipped — but a gap classed BLOCKING
+        stops the line regardless of the headline verdict. The gaps that do
+        not block still land in the journal; proceeding is not the same as
+        not recording.
         """
         probes = verdicts.get("probes") or []
         if not probes:
+            return False          # a gate that answered nothing did not say yes
+        if any(p.get("verdict") == "insufficient" for p in probes):
             return False
-        return all(p.get("verdict") in ("sufficient", "sufficient_with_gaps")
-                   for p in probes)
+        return not self.blocking_items(verdicts)
+
+    def blocking_items(self, verdicts: dict) -> list:
+        """Which reported misses stop the line.
+
+        Classification is deliberately NOT asked of the probe: the probe
+        prompt is byte-identical to the archived instrument (F37's
+        continuity clause) and adding a severity field to what it must
+        produce would change the measurement while keeping its name. So the
+        class is decided here, from the ratified stop rule — a miss whose
+        substance is an already-queued finding is corroboration, anything
+        else is new and blocks.
+        """
+        blocking = []
+        for probe in verdicts.get("probes") or []:
+            for miss in probe.get("missing") or []:
+                if not any(f.lower() in miss.lower() for f in self.queued):
+                    blocking.append({"probe": probe.get("probe"), "miss": miss})
+        return blocking
 
     # --- the walk ----------------------------------------------------------
 
+    def calibrate(self) -> dict:
+        """Ruled: per-provider calibration is mandatory before the run."""
+        if self.calibration_fn is None:
+            from harness import gate as gate_mod
+
+            result = gate_mod.calibrate(repo=self.repo, specs=self.specs)
+        else:
+            result = self.calibration_fn()
+        self.gate_inert = bool(result.get("inert"))
+        self.journal.write(
+            "calibration",
+            detail=f"seeded-gutted packet -> {result.get('verdict')}",
+            escalation="GATE_INERT" if self.gate_inert else "",
+            inert=self.gate_inert, model=result.get("model"),
+        )
+        return result
+
     def run(self) -> dict:
         self.check_authorization()
+        if not self.dry_run:
+            self.calibrate()
         plan = join.load_plan(self.specs)
         levels = join.serialize_plan(plan, []).levels
         self.journal.write("run_start", detail=f"plan {self.authorized}",
@@ -294,7 +364,18 @@ class Conductor:
 
         self.journal.write("run_end", detail=f"{len(self.completed)} completed, "
                                              f"{len(self.stopped)} stopped")
-        return self.summary()
+        summary = self.summary()
+        if not self.dry_run and self.run_id:
+            target = promote_journal(self.repo, self.journal, self.run_id)
+            rel = str(target.relative_to(self.repo) / "journal.jsonl")
+            commit_evidence(self.repo, [rel], dispatch_id=f"run-{self.run_id}",
+                            record_hash=self.authorized,
+                            branch=run_branch(self.repo, self.run_id))
+            try:
+                vault_entry(self.run_id, summary)
+            except OSError as exc:      # a missing vault is not a lost run
+                self.journal.write("note", detail=f"vault entry not filed: {exc}")
+        return summary
 
     def _stop_line(self, node_id: str, plan) -> None:
         """Stop-routing: this line, not every line."""
@@ -313,6 +394,110 @@ class Conductor:
             "escalations": [e.as_dict() for e in self.journal.escalations()],
             "journal": str(self.journal.path),
         }
+
+
+def is_evidence_path(rel_path: str) -> bool:
+    """Allowlist. A path autopilot was never told it may commit, it does not."""
+    return any(rel_path.startswith(prefix) for prefix in EVIDENCE_PREFIXES)
+
+
+def _git(repo, *args, check=True):
+    return subprocess.run(["git", "-C", str(repo), *args],
+                          capture_output=True, text=True, check=check)
+
+
+def run_branch(repo, run_id: str) -> str:
+    """Ruled: commits land on a run branch, never on whatever was checked out."""
+    branch = f"autopilot/run-{run_id}"
+    existing = _git(repo, "rev-parse", "--verify", branch, check=False)
+    if existing.returncode != 0:
+        _git(repo, "branch", branch)
+    return branch
+
+
+def commit_evidence(repo, paths, *, dispatch_id: str, record_hash: str,
+                    branch: str, journal=None) -> dict:
+    """Commit evidence-class artifacts only, locally, authored by the generator.
+
+    Ruled: "evidence-class commits only (harvests, records, reports, inbound
+    handoffs), local, run branch, dispatch-id + record hash in the message,
+    generator-authored. PUSH remains outside autopilot."
+
+    There is no push here and no remote is ever named — the ruling draws
+    that line and the absence of the capability is how it is kept, rather
+    than a flag someone could set.
+    """
+    repo = Path(repo)
+    allowed = [p for p in paths if is_evidence_path(p)]
+    refused = [p for p in paths if not is_evidence_path(p)]
+    if refused and journal is not None:
+        journal.write("commit_refused", node=dispatch_id,
+                      detail="not evidence-class: " + ", ".join(sorted(refused)))
+    if not allowed:
+        return {"committed": False, "reason": "nothing evidence-class to commit",
+                "refused": refused}
+
+    _git(repo, "add", "--", *allowed)
+    message = (
+        f"autopilot evidence — dispatch {dispatch_id}\n\n"
+        f"record {record_hash}\n"
+        f"Generated by {GENERATOR[0]} on {branch}. Not pushed."
+    )
+    name, email = GENERATOR
+    result = _git(repo, "-c", f"user.name={name}", "-c", f"user.email={email}",
+                  "commit", "-m", message, "--", *allowed, check=False)
+    if result.returncode != 0:
+        return {"committed": False, "reason": result.stderr.strip()[:200],
+                "refused": refused}
+    sha = _git(repo, "rev-parse", "HEAD").stdout.strip()[:12]
+    if journal is not None:
+        journal.write("commit", node=dispatch_id, detail=sha,
+                      paths=allowed, branch=branch)
+    return {"committed": True, "sha": sha, "paths": allowed, "refused": refused}
+
+
+def promote_journal(repo, journal: "Journal", run_id: str) -> Path:
+    """Ruled: .harness/autopilot/ live -> docs/evidence/autopilot/run-NNNN/
+    committed at run end.
+
+    The live journal sits under .harness/, which is gitignored by ruling —
+    so a run that ended without promotion would leave no permanent record at
+    all. This is the step that makes the record permanent.
+    """
+    target = Path(repo) / "docs" / "evidence" / "autopilot" / f"run-{run_id}"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "journal.jsonl").write_text(
+        journal.path.read_text() if journal.path.exists() else "")
+    return target
+
+
+VAULT_LEDGER = Path.home() / "vault" / "ledger"
+
+
+def vault_entry(run_id: str, summary: dict, *, kind="run", ledger=None) -> Path:
+    """Ruled: a vault ledger entry per completed run and per resolved escalation.
+
+    Written as a file, never as an edit to an existing one — the ledger is
+    append-only for everyone, forever.
+    """
+    ledger = Path(ledger or VAULT_LEDGER)
+    ledger.mkdir(parents=True, exist_ok=True)
+    slug = f"autopilot-{kind}-{run_id}"
+    path = ledger / f"{slug}.md"
+    body = [
+        "---", "type: ledger", "labels: [lex, autopilot]", f"run: {run_id}",
+        "---", "",
+        f"# autopilot {kind} — {run_id}", "",
+        f"- plan hash: `{summary.get('plan_hash')}`",
+        f"- completed: {', '.join(summary.get('completed') or []) or '(none)'}",
+        f"- stopped: {', '.join(summary.get('stopped') or []) or '(none)'}",
+        f"- escalations: {len(summary.get('escalations') or [])}", "",
+    ]
+    for event in summary.get("escalations") or []:
+        body.append(f"- **{event['escalation']}** on "
+                    f"`{event.get('node') or '(run)'}` — {event.get('because','')}")
+    path.write_text("\n".join(body) + "\n")
+    return path
 
 
 def _first_request_mem(text: str) -> str:
@@ -360,6 +545,7 @@ def main(argv=None) -> int:
     conductor = Conductor(
         repo=args.repo, specs=args.specs, authorized_plan_hash=args.authorize,
         journal=journal, dry_run=args.dry_run, max_parallel=args.max_parallel,
+        run_id=run_id,
     )
     try:
         summary = conductor.run()

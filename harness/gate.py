@@ -205,3 +205,70 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# --- per-provider calibration (ratified: mandatory) --------------------------
+#
+# Ruled: "a seeded-gutted packet must produce a stop on the provider in use;
+# a provider that never stops the seeded case has an INERT gate and autopilot
+# treats its verdicts as no-gate (escalate)."
+#
+# F38 is why. The same bytes, the same packets, returned four to six misses
+# on one model and zero on another — and a gate whose probes never report a
+# gap is not measuring. Calibration turns that from an argument into a
+# measurement: gut a packet of the things an executor provably cannot work
+# without, and see whether this provider notices.
+#
+# The fixture is SYNTHETIC by construction, per the standing law that
+# absent-side proofs pin to synthetic fixtures only: nothing here asserts a
+# live node is missing anything. It removes sections from a copy.
+
+GUTTED_SECTIONS = ("### Write scope as it exists", "### Interfaces you consume",
+                   "### Callers of your write scope", "## Task")
+
+
+def gut_packet(packet: str) -> str:
+    """Remove the sections an executor cannot do the job without.
+
+    Keeps identity and protocol so the result is still recognisably a
+    packet — the probe must fail it on substance, not on malformedness.
+    """
+    lines, out, dropping = packet.splitlines(), [], False
+    for line in lines:
+        if line.startswith("## ") or line.startswith("### "):
+            dropping = any(line.startswith(s) for s in GUTTED_SECTIONS)
+        if not dropping:
+            out.append(line)
+    out.append("\n(sections removed to calibrate the gate — this is a "
+               "synthetic fixture, not a real packet)")
+    return "\n".join(out)
+
+
+def calibrate(*, repo=".", commit=None, specs="harness/specs", model=None,
+              api_key=None, base_url="https://api.x.ai/v1/chat/completions",
+              packet=None) -> dict:
+    """Does this provider's gate stop on a packet that is provably gutted?
+
+    Returns the verdict and an `inert` flag. Inert means the gate cannot be
+    trusted to stop anything, so autopilot must treat its verdicts as
+    no-gate rather than as permission.
+    """
+    api_key = api_key or os.environ.get("XAI_API_KEY") or os.environ.get("GROK_API_KEY")
+    if not api_key:
+        raise GateError("no API key — export XAI_API_KEY to calibrate the gate")
+    model = model or os.environ.get("LEX_MODEL", "grok-4")
+    key, node, role, extra = PROBES[0]
+    if packet is None:
+        packet = _packet(node, role, Path(repo), commit, specs)
+    result = _call(build_prompt(gut_packet(packet), extra), model=model,
+                   api_key=api_key, base_url=base_url)
+    stopped = result.get("verdict") == "insufficient"
+    return {
+        "model": model,
+        "probe": key,
+        "verdict": result.get("verdict"),
+        "missing": result.get("missing") or [],
+        "stopped_on_seeded_case": stopped,
+        "inert": not stopped,
+        "fixture": "synthetic — gutted copy of a real packet",
+    }

@@ -129,8 +129,9 @@ def test_a_gate_that_is_not_clean_stops_the_node_before_any_dispatch(tmp_path):
 
 def test_an_empty_probe_set_is_not_clean(tmp_path):
     # A gate that answered nothing is not a gate that said yes.
-    assert autopilot.Conductor._gate_clean({"probes": []}) is False
-    assert autopilot.Conductor._gate_clean({}) is False
+    boss = conductor(tmp_path)
+    assert boss._gate_clean({"probes": []}) is False
+    assert boss._gate_clean({}) is False
 
 
 def test_one_nodes_crash_does_not_take_down_the_run(tmp_path):
@@ -140,6 +141,7 @@ def test_one_nodes_crash_does_not_take_down_the_run(tmp_path):
         raise RuntimeError("worktree gone")
 
     boss.run_node = explode
+    boss.calibration_fn = lambda: {"inert": False, "verdict": "insufficient"}
     summary = boss.run()
     assert summary["escalations"], "the crash must reach the human as an event"
     assert any(e["escalation"] == "RUNNER_ERROR" for e in summary["escalations"])
@@ -197,3 +199,131 @@ def test_render_puts_the_escalations_in_front_of_the_human(tmp_path):
     })
     assert "GATE_NOT_CLEAN" in text and "symbol_table" in text
     assert "clean gate = proceed" in text
+
+
+# --- the ratified gate law ---------------------------------------------------
+
+
+def test_sufficient_with_gaps_proceeds_when_no_gap_blocks(tmp_path):
+    boss = conductor(tmp_path, queued_findings=["F4", "F3"])
+    verdicts = {"probes": [{"probe": "p", "verdict": "sufficient_with_gaps",
+                            "missing": ["the F4 surface-coverage gap again"]}]}
+    assert boss.blocking_items(verdicts) == []
+    assert boss._gate_clean(verdicts) is True
+
+
+def test_a_blocking_item_stops_the_line_despite_a_passing_verdict(tmp_path):
+    """The ruled clause that does the work: the headline verdict is not the
+    whole gate. A gap nobody has ruled on blocks even under
+    sufficient_with_gaps."""
+    boss = conductor(tmp_path, queued_findings=["F4"])
+    verdicts = {"probes": [{"probe": "p", "verdict": "sufficient_with_gaps",
+                            "missing": ["the index persistence schema"]}]}
+    assert boss.blocking_items(verdicts)
+    assert boss._gate_clean(verdicts) is False
+
+
+def test_insufficient_stops_regardless_of_classification(tmp_path):
+    boss = conductor(tmp_path, queued_findings=["F4"])
+    assert boss._gate_clean({"probes": [
+        {"probe": "p", "verdict": "insufficient", "missing": ["F4 thing"]}]}) is False
+
+
+def test_blocking_classification_never_touches_the_probe_prompt():
+    """F37's continuity clause: asking the probe to classify severity would
+    change the measured instrument while keeping its name."""
+    import inspect
+
+    from harness import gate as gate_mod
+
+    assert "blocking" not in gate_mod.PROBE_PREAMBLE.lower()
+    assert "blocking" not in gate_mod.SHAPE_SYSTEM.lower()
+    assert "blocking" not in inspect.getsource(gate_mod.build_prompt).lower()
+
+
+def test_an_inert_gate_escalates_instead_of_proceeding(tmp_path):
+    boss = conductor(tmp_path)
+    boss.gate_inert = True
+    spawned = []
+    boss.runner = lambda *a, **k: spawned.append(1) or {"returncode": 0}
+    assert boss.run_node("gitio") == "stopped"
+    assert spawned == []
+    assert boss.journal.escalations()[0].escalation == "GATE_INERT"
+
+
+def test_calibration_runs_before_any_node_and_lands_in_the_journal(tmp_path):
+    boss = conductor(tmp_path, calibration_fn=lambda: {
+        "inert": False, "verdict": "insufficient", "model": "grok-4"})
+    boss.run_node = lambda n: "completed"
+    boss.run()
+    kinds = [e.kind for e in boss.journal.events]
+    assert kinds.index("calibration") < kinds.index("level")
+
+
+def test_gutting_removes_what_an_executor_cannot_work_without():
+    from harness import gate as gate_mod
+
+    packet = (PROJECT_ROOT / "docs" / "evidence" / "step3t" / "packet_st.md").read_text()
+    gutted = gate_mod.gut_packet(packet)
+    assert "### Write scope as it exists" not in gutted
+    assert "### Interfaces you consume" not in gutted
+    assert "## Identity" in gutted, "it must still look like a packet"
+    assert len(gutted) < len(packet) / 4
+    assert "synthetic fixture" in gutted
+
+
+# --- the ratified commit policy ----------------------------------------------
+
+
+def test_only_evidence_class_paths_are_committable():
+    assert autopilot.is_evidence_path("docs/evidence/autopilot/run-1/journal.jsonl")
+    assert autopilot.is_evidence_path("harness/reports/017.md")
+    for forbidden in ("analyzer/symbols.py", "harness/join.py", "lex/tools.py",
+                      "harness/specs/analyzer.yaml", ".claude/settings.json"):
+        assert not autopilot.is_evidence_path(forbidden), forbidden
+
+
+def test_a_non_evidence_path_is_refused_and_recorded(tmp_path):
+    log = journal(tmp_path)
+    result = autopilot.commit_evidence(
+        tmp_path, ["analyzer/symbols.py"], dispatch_id="d1",
+        record_hash="abc", branch="autopilot/run-x", journal=log)
+    assert result["committed"] is False
+    assert result["refused"] == ["analyzer/symbols.py"]
+    assert any(e.kind == "commit_refused" for e in log.events)
+
+
+def test_autopilot_cannot_push():
+    """The ruling puts push outside autopilot. It is kept out by the absence
+    of the capability, not by a flag someone could set."""
+    import inspect
+
+    import re
+
+    source = inspect.getsource(autopilot)
+    # Checked as a git argument, not as a word: the docstring that explains
+    # the rule says "push", and a test that cannot tell prose from a call
+    # would be satisfied by deleting the explanation.
+    for literal in (r"['\"]push['\"]", r"['\"]remote['\"]",
+                    r"['\"]origin['\"]", r"['\"]fetch['\"]"):
+        assert not re.search(literal, source), f"a git {literal} argument exists"
+
+
+def test_journal_is_promoted_out_of_the_gitignored_directory(tmp_path):
+    log = journal(tmp_path)
+    log.write("run_start", detail="x")
+    target = autopilot.promote_journal(tmp_path, log, "0001")
+    assert target.as_posix().endswith("docs/evidence/autopilot/run-0001")
+    assert "run_start" in (target / "journal.jsonl").read_text()
+    assert autopilot.is_evidence_path("docs/evidence/autopilot/run-0001/journal.jsonl")
+
+
+def test_a_vault_entry_is_a_new_file_never_an_edit(tmp_path):
+    ledger = tmp_path / "ledger"
+    summary = {"plan_hash": "66e6", "completed": ["gitio"], "stopped": [],
+               "escalations": [{"escalation": "GATE_BLOCKING", "node": "symbol_table",
+                                "because": "blocking item"}]}
+    path = autopilot.vault_entry("0001", summary, ledger=ledger)
+    assert path.name == "autopilot-run-0001.md"
+    assert "GATE_BLOCKING" in path.read_text()
+    assert list(ledger.iterdir()) == [path]
