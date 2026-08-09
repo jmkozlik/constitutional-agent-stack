@@ -1,0 +1,17 @@
+$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/symbol_table)
+--- exit 0
+--- stdout
+Delivered. This was a validation-only dispatch (empty delta), so I wrote nothing in the write scope — both done_when bullets are **ATTESTED**, no defects filed.
+
+**Evidence summary:**
+
+- **Whitespace reformat → body_hash stable:** I extracted the same function/class/method from an original source and an aggressively whitespace-reformatted copy (indent width changed, blank lines added/removed, params split across lines, trailing whitespace). All three `body_hash` values were identical (`5fa7d4e9`, `8c3963d2`, `c4e22c83`). The in-repo test `test_body_hash_survives_reformat_and_comments` (tests/test_symbols.py:68) pins the same property. One boundary noted in the attestation: whitespace *inside* docstrings is content, not formatting, and does change the hash — the repo pins that as intended, so it's not a defect.
+- **Ranges positional, never identity:** shifting the identical source down 55 lines moved every symbol's `start_line`/`end_line` (e.g. 1-4 → 56-59) while `sig_hash`, `body_hash`, and `decor_hash` stayed byte-identical. `extract_symbols` takes only `(source, rel_path)` and derives ranges fresh from the AST each call — no code path feeds a range into a hash.
+- Baseline: full suite passes at the packet commit — `440 passed, 1 skipped`.
+
+**Deliverables written:** `.harness/out/attestation.md` (two ATTEST sections with verbatim command+output), `.harness/out/defects.md` (`none`), `.harness/scratch/handoff.md` (verified facts vs. interpretive claims, including my readings of "reformatting whitespace" and "stored as identity"). The rerunnable probe is preserved at `.harness/scratch/probe_done_when.py`.
+
+No REQUEST_MEM lines, no fence denials.
+
+--- stderr
+

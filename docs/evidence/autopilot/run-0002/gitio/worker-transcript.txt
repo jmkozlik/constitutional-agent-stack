@@ -1,0 +1,23 @@
+$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/gitio)
+--- exit 0
+--- stdout
+Validation-only dispatch for node `gitio` complete — all three done_when bullets ATTESTED, no defects filed, no code changes made (empty delta held in practice).
+
+**Deliverables written:**
+- `.harness/out/attestation.md` — one ATTEST section per bullet with verbatim command output
+- `.harness/out/defects.md` — none (one conforming-behavior observation recorded)
+- `.harness/scratch/handoff.md` — verified facts and interpretive claims, marked separately
+
+**Evidence summary:**
+1. *Objects, never a checkout* — `list_py_files` and `read_files` answer correctly against a **bare** clone (`is_bare=true`, no worktree exists) and ignore deliberately dirtied worktree content in a non-bare repo; statically, the module invokes only rev-parse, ls-tree, cat-file --batch, and diff.
+2. *Rename as delete + add* — a byte-identical `git mv` (git's own `-M` diff reports `R100`) comes out as `{'src/a.py': ([(1, 3)], []), 'src/renamed.py': ([], [(1, 3)])}` — old path pure delete, new path pure add, no rename entry.
+3. *GitError, never silent empty* — every callable raises `GitError` naming the failed command on bad revs/missing dirs; `read_files` additionally raises on a missing object even though `cat-file --batch` exits zero there.
+
+Full suite at the packet commit: `440 passed, 1 skipped`. Probe script is reproducible at `.harness/scratch/probe_gitio.py`.
+
+One observation surfaced (not filed — conforms to the seeded contract, which keys on non-zero exit): git's upward repo discovery means a non-repo `repo` path inside an enclosing repo silently answers from that enclosing repo. Detail in defects.md/handoff.md for a future spec author.
+
+No REQUEST_MEM lines; no fence denials encountered.
+
+--- stderr
+

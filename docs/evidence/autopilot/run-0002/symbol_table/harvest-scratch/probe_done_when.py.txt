@@ -1,0 +1,76 @@
+"""Validation probes for the two done_when bullets, observed through
+analyzer.symbols.extract_symbols (the surface callable).
+
+Bullet 1: Reformatting whitespace does not change the body hash.
+Bullet 2: Ranges are recomputed per commit, never stored as identity.
+"""
+from analyzer.symbols import extract_symbols
+
+# ---- Bullet 1: whitespace reformat, same AST ------------------------------
+
+ORIGINAL = b'''\
+def total(items, tax_rate=0.1):
+    """Sum with tax."""
+    subtotal = sum(i.price for i in items)
+    return subtotal * (1 + tax_rate)
+
+
+class Cart:
+    limit: int = 10
+
+    def add(self, item):
+        self.items.append(item)
+'''
+
+# Same code after aggressive whitespace-only reformatting: 2-space indent,
+# blank lines inserted/removed, args split across lines, spaces around
+# operators changed, trailing whitespace added.
+REFORMATTED = b'''\
+def total(
+    items,
+    tax_rate = 0.1,
+):
+  """Sum with tax."""
+
+  subtotal = sum( i.price   for i in items )
+
+
+  return subtotal*(1+tax_rate)\x20\x20
+class Cart:
+      limit : int=10
+      def add( self , item ):
+                self.items.append( item )
+'''
+
+a = {r["path"]: r for r in extract_symbols(ORIGINAL, "src/shop.py")}
+b = {r["path"]: r for r in extract_symbols(REFORMATTED, "src/shop.py")}
+
+assert a.keys() == b.keys(), (a.keys(), b.keys())
+for path in a:
+    assert a[path]["body_hash"] == b[path]["body_hash"], (
+        f"BULLET 1 FAIL: body_hash changed for {path}: "
+        f"{a[path]['body_hash']} != {b[path]['body_hash']}"
+    )
+    print(f"bullet1 OK  {path}: body_hash {a[path]['body_hash']} == {b[path]['body_hash']}")
+
+# ---- Bullet 2: ranges are positional, identity hashes are not -------------
+
+SHIFTED = b'\n' * 50 + b'# padding comment\n' * 5 + ORIGINAL
+
+c = {r["path"]: r for r in extract_symbols(SHIFTED, "src/shop.py")}
+
+for path in a:
+    moved = (a[path]["start_line"], a[path]["end_line"]) != (
+        c[path]["start_line"], c[path]["end_line"])
+    assert moved, f"BULLET 2 FAIL: ranges did not move for {path}"
+    for h in ("sig_hash", "body_hash", "decor_hash"):
+        assert a[path][h] == c[path][h], (
+            f"BULLET 2 FAIL: {h} changed with position for {path}"
+        )
+    print(
+        f"bullet2 OK  {path}: lines {a[path]['start_line']}-{a[path]['end_line']}"
+        f" -> {c[path]['start_line']}-{c[path]['end_line']},"
+        f" sig/body/decor hashes unchanged"
+    )
+
+print("ALL PROBES PASSED")

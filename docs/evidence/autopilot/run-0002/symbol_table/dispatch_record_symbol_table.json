@@ -1,0 +1,43 @@
+{
+  "artifacts": [
+    "harvest-out/attestation.md",
+    "harvest-out/defects.md",
+    "harvest-scratch/handoff.md",
+    "harvest-scratch/probe_done_when.py.txt"
+  ],
+  "commit": "225e2da300ea9253100fd93e870cca06fe67def5",
+  "delta_at_dispatch": "delta: empty (validation-only)",
+  "dispatch_id": "symbol_table",
+  "dispatch_plan_hash": "66e648664216",
+  "fence_allowed": {
+    "analyzer/modpath.py": "exists@f585b83b",
+    "analyzer/symbols.py": "exists@b3689cbc"
+  },
+  "fence_sha256": "72b3694d1a3c0fa408bd66e36b31b0150b7692455003364cd52b29ac167eb4cf",
+  "finished": null,
+  "gate": "violated",
+  "generator": "harness.dispatch/1",
+  "node": "symbol_table",
+  "packet_delivery": "file (.harness/packet.md, sha256 e234377f48fc93c6\u2026)",
+  "packet_hash": "6d7c0c2fe44e",
+  "reads_out_of_packet": [
+    {
+      "path": "tests/test_symbols.py",
+      "tool": "Grep",
+      "ts": 1786236572
+    },
+    {
+      "path": "tests/test_symbols.py",
+      "tool": "Read",
+      "ts": 1786236580
+    }
+  ],
+  "record": "dispatch",
+  "role": "executor",
+  "self_served_misses": 2,
+  "spec_plan_hash": "66e648664216",
+  "started": "2026-08-08T20:47:44-0400",
+  "violations": [
+    ".venv"
+  ]
+}
