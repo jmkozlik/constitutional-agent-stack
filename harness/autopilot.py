@@ -60,6 +60,9 @@ ESCALATIONS = {
                   "per-provider calibration is mandatory)",
     "GATE_BLOCKING": "the gate reported a BLOCKING-classed item (ruled: "
                      "blocking items stop the line they gate)",
+    "TIMEOUT": "the worker exceeded the bounded wall-clock for a dispatch "
+               "(ruled: an unattended agent that hangs escalates, never "
+               "stalls silently)",
     "PROVISIONING_FAILED": "staging could not prove the verify channel the "
                            "packet promises (ruled: the packet may only "
                            "promise what staging has proven)",
@@ -75,6 +78,16 @@ ESCALATIONS = {
 # module file, and staging asserts the module resolved inside the worktree —
 # an unproven promise is the thing the law forbids.
 VERIFY_COMMAND = (".venv/bin/python", "-m", "pytest", "-q")
+
+# Ruled: bounded wall-clock per dispatch, escalate on expiry. Unattended is
+# the whole point of the conductor, and unattended plus unbounded is a stall
+# nobody is watching.
+DISPATCH_TIMEOUT_SECONDS = 1800
+
+# F34, promoted: a live-dispatch registry written at stage and cleared at
+# teardown. Rung three widens the tree to six concurrent worktrees, which is
+# exactly when a cross-tree target no-op stops being theoretical.
+REGISTRY = Path(".harness") / "dispatch-registry.json"
 PREFLIGHT_PROBE = (
     "import sys, analyzer.gitio as m; "
     "print('USING interpreter', sys.executable); "
@@ -163,7 +176,8 @@ def dependents(plan, node_id: str) -> set:
     return out
 
 
-def default_runner(prompt: str, worktree: Path, *, timeout=3600) -> dict:
+def default_runner(prompt: str, worktree: Path, *,
+                   timeout=DISPATCH_TIMEOUT_SECONDS) -> dict:
     """Spawn a real agent against a prepared worktree.
 
     Claude Code headless, with the worktree as its working directory — so
@@ -262,7 +276,7 @@ class Conductor:
                              for p in verdicts.get("probes") or []) or "(no probes)",
             blocking=len(blocking),
         )
-        if not self._gate_clean(verdicts):
+        if not self._gate_clean(verdicts, blocking):
             self.journal.write(
                 "stop", node=node_id,
                 escalation="GATE_BLOCKING" if blocking else "GATE_NOT_CLEAN",
@@ -281,6 +295,7 @@ class Conductor:
             self.journal.write("dispatch", node=node_id,
                                detail=str(context["worktree"]),
                                packet_hash=context["packet_hash"])
+            self.register(node_id, context)
             staged = self.stage(node_id, context)
             if not staged.get("proven"):
                 self.journal.write("stop", node=node_id,
@@ -288,7 +303,14 @@ class Conductor:
                                    detail=staged.get("why", "")[:400])
                 return "stopped"
 
-            outcome = self.runner(context["prompt"], context["worktree"])
+            try:
+                outcome = self.runner(context["prompt"], context["worktree"])
+            except subprocess.TimeoutExpired as exc:
+                self.journal.write(
+                    "stop", node=node_id, escalation="TIMEOUT",
+                    detail=f"no result after {exc.timeout}s — the worker is "
+                           f"abandoned and the line stops")
+                return "stopped"
             # Leg one, D1: this used to sit after harvest, so every stop that
             # happened first — a runner error, a REQUEST_MEM — threw away the
             # worker's own account of how it got there. The transcript is
@@ -335,6 +357,7 @@ class Conductor:
             return "completed"
         finally:
             if context is not None:
+                self.deregister(node_id)     # F34: cleared at teardown
                 dispatch.teardown(context)
 
     def evidence_dir(self, node_id: str) -> Path:
@@ -399,6 +422,32 @@ class Conductor:
                            f"{verify.returncode} in the worktree: {tail[0][:200]}"}
         return {"proven": True, "verify": tail[0]}
 
+    def registry_path(self) -> Path:
+        return self.repo / REGISTRY
+
+    def register(self, node_id: str, context: dict) -> dict:
+        """Record a live dispatch: which tree it owns and what it may write."""
+        path = self.registry_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        live = json.loads(path.read_text()) if path.exists() else {}
+        live[node_id] = {
+            "worktree": str(context["worktree"]),
+            "allowed": sorted((context.get("fence") or {}).get("allowed", {})
+                              or context.get("allowed", {}) or {}),
+            "packet_hash": context.get("packet_hash", ""),
+        }
+        path.write_text(json.dumps(live, indent=2, sort_keys=True))
+        self.journal.write("register", node=node_id, detail=str(context["worktree"]),
+                           live=sorted(live))
+        return live
+
+    def deregister(self, node_id: str) -> dict:
+        path = self.registry_path()
+        live = json.loads(path.read_text()) if path.exists() else {}
+        live.pop(node_id, None)
+        path.write_text(json.dumps(live, indent=2, sort_keys=True))
+        return live
+
     def unstage(self, context: dict) -> None:
         link = Path(context["worktree"]) / ".venv"
         if link.is_symlink():
@@ -411,7 +460,7 @@ class Conductor:
 
         return gate_mod.run(repo=self.repo, specs=self.specs)
 
-    def _gate_clean(self, verdicts: dict) -> bool:
+    def _gate_clean(self, verdicts: dict, blocking=None) -> bool:
         """Ruled: proceed unless `insufficient` or any BLOCKING-classed item.
 
         `sufficient_with_gaps` proceeds — it is the historical verdict for
@@ -425,7 +474,12 @@ class Conductor:
             return False          # a gate that answered nothing did not say yes
         if any(p.get("verdict") == "insufficient" for p in probes):
             return False
-        return not self.blocking_items(verdicts)
+        # Classification is computed once by the caller and passed in. It used
+        # to be recomputed here, which logged every miss to the journal twice
+        # — found by the ordered router exercise before a live miss ever
+        # routed on it, which is what the exercise was for.
+        return not (self.blocking_items(verdicts) if blocking is None
+                    else blocking)
 
     def blocking_items(self, verdicts: dict) -> list:
         """Which reported misses stop the line.

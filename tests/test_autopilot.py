@@ -491,3 +491,117 @@ def test_staging_removes_its_own_artifact_before_the_diff_gate(tmp_path):
     boss.unstage({"worktree": worktree})
     assert not (worktree / ".venv").exists()
     assert list(worktree.iterdir()) == []
+
+
+# --- ordered: the router exercised on seeded fixtures ------------------------
+#
+# Three live legs produced zero misses, so the corroboration-vs-new routing
+# has never actually run on real input. Ordered: prove it on seeded fixtures
+# BEFORE a live miss routes on it — a classifier first exercised by the
+# event it is meant to classify is a classifier nobody has checked.
+
+
+def test_seeded_corroboration_does_not_block_and_is_logged_as_matched(tmp_path):
+    boss = conductor(tmp_path, queued_findings=["F4", "F35"])
+    seeded = {"probes": [{"probe": "executor:affected_symbols",
+                          "verdict": "sufficient_with_gaps",
+                          "missing": [
+                              "the F4 surface-coverage gap on done_when bullet 2",
+                              "F35's callers_unknowable category qualifier",
+                          ]}]}
+    blocking = boss.blocking_items(seeded)
+    assert blocking == []
+    assert boss._gate_clean(seeded, blocking) is True
+    logged = [e for e in boss.journal.events if e.kind == "classify"]
+    assert [e.data["matched"] for e in logged] == ["F4", "F35"]
+    assert all(e.data["blocking"] is False for e in logged)
+
+
+def test_seeded_new_blocks_and_is_logged_as_new(tmp_path):
+    boss = conductor(tmp_path, queued_findings=["F4", "F35"])
+    seeded = {"probes": [{"probe": "executor:symbol_table",
+                          "verdict": "sufficient_with_gaps",
+                          "missing": ["the index persistence schema"]}]}
+    blocking = boss.blocking_items(seeded)
+    assert [b["miss"] for b in blocking] == ["the index persistence schema"]
+    assert boss._gate_clean(seeded, blocking) is False
+    logged = [e for e in boss.journal.events if e.kind == "classify"]
+    assert logged[0].data == {"matched": "new", "blocking": True}
+
+
+def test_a_mixed_verdict_routes_each_miss_on_its_own_class(tmp_path):
+    """The case that matters: corroboration alongside something new must not
+    launder the new one through."""
+    boss = conductor(tmp_path, queued_findings=["F4"])
+    seeded = {"probes": [{"probe": "p", "verdict": "sufficient_with_gaps",
+                          "missing": ["the F4 gap again", "an unruled schema"]}]}
+    blocking = boss.blocking_items(seeded)
+    assert len(blocking) == 1 and "unruled" in blocking[0]["miss"]
+    assert boss._gate_clean(seeded, blocking) is False
+
+
+# --- ordered: bounded wall-clock ---------------------------------------------
+
+
+def test_a_hanging_worker_escalates_rather_than_stalling(tmp_path, monkeypatch):
+    from harness import dispatch as real_dispatch
+
+    boss = conductor(tmp_path, run_id="t", gate_fn=lambda n: {"probes": [
+        {"probe": "p", "verdict": "sufficient", "missing": []}]})
+    boss.repo = tmp_path
+    boss.stage = lambda node, ctx: {"proven": True}
+    boss.register = lambda node, ctx: {}
+    boss.deregister = lambda node: {}
+
+    def hang(prompt, worktree, **kwargs):
+        raise autopilot.subprocess.TimeoutExpired(cmd="claude", timeout=1800)
+
+    boss.runner = hang
+    monkeypatch.setattr(real_dispatch, "prepare", lambda *a, **k: {
+        "worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"})
+    monkeypatch.setattr(real_dispatch, "teardown", lambda ctx: {})
+    assert boss.run_node("gitio") == "stopped"
+    assert boss.journal.escalations()[-1].escalation == "TIMEOUT"
+
+
+def test_the_dispatch_wall_clock_is_bounded_at_the_call_site():
+    """Asserted over the AST per the test law: the default must be the ruled
+    bound, not an unbounded call that happens to be documented as bounded."""
+    signature = inspect.signature(autopilot.default_runner)
+    assert signature.parameters["timeout"].default == \
+        autopilot.DISPATCH_TIMEOUT_SECONDS
+    assert autopilot.DISPATCH_TIMEOUT_SECONDS > 0
+
+
+# --- F34: the live-dispatch registry -----------------------------------------
+
+
+def test_the_registry_records_live_trees_and_clears_them(tmp_path):
+    """F34, promoted: rung three runs six worktrees at once, which is when a
+    cross-tree target no-op stops being theoretical."""
+    boss = conductor(tmp_path)
+    boss.repo = tmp_path
+    boss.register("gitio", {"worktree": tmp_path / "a", "packet_hash": "h1"})
+    boss.register("symbol_table", {"worktree": tmp_path / "b", "packet_hash": "h2"})
+    live = json.loads(boss.registry_path().read_text())
+    assert sorted(live) == ["gitio", "symbol_table"]
+    assert live["gitio"]["worktree"].endswith("/a")
+
+    boss.deregister("gitio")
+    assert sorted(json.loads(boss.registry_path().read_text())) == ["symbol_table"]
+
+
+def test_the_registry_is_cleared_even_when_a_node_stops(tmp_path, monkeypatch):
+    from harness import dispatch as real_dispatch
+
+    boss = conductor(tmp_path, gate_fn=lambda n: {"probes": [
+        {"probe": "p", "verdict": "sufficient", "missing": []}]})
+    boss.repo = tmp_path
+    cleared = []
+    boss.deregister = lambda node: cleared.append(node)
+    monkeypatch.setattr(real_dispatch, "prepare", lambda *a, **k: {
+        "worktree": tmp_path / "wt", "prompt": "p", "packet_hash": "h"})
+    monkeypatch.setattr(real_dispatch, "teardown", lambda ctx: {})
+    boss.stage = lambda node, ctx: {"proven": False, "why": "nope"}
+    boss.run_node("gitio")
+    assert cleared == ["gitio"], "a stopped dispatch must not stay registered"
