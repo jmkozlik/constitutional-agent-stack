@@ -731,3 +731,16 @@ def test_a_failing_tracker_does_not_cost_the_harvest(tmp_path, monkeypatch):
     assert harvested, "three bookkeeping failures must not cost the harvest"
     notes = [e.detail for e in boss.journal.events if e.kind == "note"]
     assert len(notes) == 3
+
+
+def test_the_gate_probes_the_node_being_dispatched(tmp_path):
+    """Run 0005: `gitio` was stopped by misses about the affected_symbols
+    tester packet, because gate() took node_id and ignored it. Asserted
+    against what the gate module actually emits for a node."""
+    from harness import gate as gate_mod
+
+    assert "gitio" in gate_mod.NODE_EXTRA.format(node="gitio")
+    # the construction around the packet is the archived one, unchanged
+    built = gate_mod.build_prompt("BODY", gate_mod.NODE_EXTRA.format(node="gitio"))
+    assert built.startswith(gate_mod.PROBE_PREAMBLE)
+    assert "=== PACKET BEGINS ===\nBODY\n=== PACKET ENDS ===" in built

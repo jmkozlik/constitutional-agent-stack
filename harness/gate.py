@@ -272,3 +272,38 @@ def calibrate(*, repo=".", commit=None, specs="harness/specs", model=None,
         "inert": not stopped,
         "fixture": "synthetic — gutted copy of a real packet",
     }
+
+
+# --- per-node gating --------------------------------------------------------
+#
+# The archived three-probe protocol measures the loop's own spec quality on
+# three fixed subjects, and that is what F37's continuity clause pins. It is
+# NOT a per-node gate, which is what a conductor dispatching six nodes needs:
+# run 0005 stopped `gitio` on misses reported about the affected_symbols
+# tester packet, because every node was handed the same three verdicts.
+#
+# This applies the SAME instrument to the node actually being dispatched: the
+# same preamble, the same construction, the same enum, with the archived
+# executor `extra` sentence instantiated for that node. The bytes around the
+# packet are unchanged; only the subject differs — which is the difference
+# between using the instrument and altering it.
+NODE_EXTRA = "Your task per the packet is to implement/modify the {node} node."
+
+
+def run_for(node: str, role: str = "executor", *, repo=".", commit=None,
+            specs="harness/specs", model=None, api_key=None,
+            base_url="https://api.x.ai/v1/chat/completions") -> dict:
+    """Gate the packet of the node actually being dispatched."""
+    api_key = api_key or os.environ.get("XAI_API_KEY") or os.environ.get("GROK_API_KEY")
+    if not api_key:
+        raise GateError("no API key — export XAI_API_KEY to run the gate")
+    model = model or os.environ.get("LEX_MODEL", "grok-4")
+    extra = NODE_EXTRA.format(node=node)
+    packet = _packet(node, role, Path(repo), commit, specs)
+    result = _call(build_prompt(packet, extra), model=model, api_key=api_key,
+                   base_url=base_url)
+    return {
+        "protocol": "three-probe packet-sufficiency, applied per node",
+        "model": model,
+        "probes": [{"probe": f"{role}:{node}", **result}],
+    }

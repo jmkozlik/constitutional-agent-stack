@@ -516,7 +516,11 @@ class Conductor:
             return self.gate_fn(node_id)
         from harness import gate as gate_mod
 
-        return gate_mod.run(repo=self.repo, specs=self.specs)
+        # Per node, not the fixed trio. Run 0005 blocked `gitio` on misses
+        # reported about the affected_symbols tester packet — six nodes gated
+        # on evidence about two.
+        return gate_mod.run_for(node_id, "executor", repo=self.repo,
+                                specs=self.specs)
 
     def _gate_clean(self, verdicts: dict, blocking=None) -> bool:
         """Ruled: proceed unless `insufficient` or any BLOCKING-classed item.
