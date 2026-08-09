@@ -1,0 +1,66 @@
+"""Validation probes for gitio done_when bullets. Run from worktree root."""
+import shutil
+import sys
+from pathlib import Path
+
+from analyzer.gitio import GitError, changed_files, list_py_files, read_files, resolve_commit
+
+FX = Path(".harness/scratch/fx")
+REPO = FX / "repo"
+BARE = FX / "repo.bare"
+C1 = "e6f184cb93723e6236a8e7323f6315588fb6e033"
+C2 = "784c20062c4728bf4861b44f0aab96fe623b470a"
+
+print("== Bullet 1: git objects, never a checkout ==")
+# 1a. A bare repo has NO checkout at all. If these answer correctly, they read objects.
+files_bare = list_py_files(BARE, C1)
+print("bare list_py_files@C1:", files_bare)
+assert files_bare == ["src/a.py", "src/b.py"], files_bare
+blobs_bare = read_files(BARE, C1, ["src/a.py", "src/b.py"])
+print("bare read_files@C1:", blobs_bare)
+assert blobs_bare == {"src/a.py": b"a = 1\n", "src/b.py": b"b = 2\n"}, blobs_bare
+
+# 1b. Non-bare repo: worktree is at C2 (src/b.py deleted on disk, a.py differs
+# from C1). Querying C1 must return C1's committed content, not disk state.
+assert not (REPO / "src/b.py").exists(), "fixture precondition: b.py gone from worktree"
+print("worktree src/a.py on disk:", (REPO / "src/a.py").read_bytes())
+blobs_c1 = read_files(REPO, C1, ["src/a.py", "src/b.py"])
+print("read_files@C1 from non-bare repo:", blobs_c1)
+assert blobs_c1 == {"src/a.py": b"a = 1\n", "src/b.py": b"b = 2\n"}, blobs_c1
+assert list_py_files(REPO, C1) == ["src/a.py", "src/b.py"]
+print("PASS bullet 1")
+
+print("\n== Bullet 2: rename surfaces as delete + add, never a rename ==")
+ch = changed_files(REPO, C1, C2)
+print("changed_files(C1, C2):", ch)
+# Renamed file: old path is pure delete (old-side ranges only),
+# new path is pure add (new-side ranges only). Both paths present, no rename pairing.
+assert "src/b.py" in ch and "src/c.py" in ch, ch
+old_side, new_side = ch["src/b.py"]
+assert old_side == [(1, 1)] and new_side == [], ch["src/b.py"]
+old_side, new_side = ch["src/c.py"]
+assert old_side == [] and new_side == [(1, 1)], ch["src/c.py"]
+# Modified file reported normally alongside.
+assert ch["src/a.py"] == ([], [(2, 2)]), ch["src/a.py"]
+print("PASS bullet 2")
+
+print("\n== Bullet 3: failing git command raises GitError, never silent empty ==")
+cases = [
+    ("resolve_commit bad rev", lambda: resolve_commit(REPO, "no-such-rev")),
+    ("list_py_files bad rev", lambda: list_py_files(REPO, "no-such-rev")),
+    ("read_files bad rev", lambda: read_files(REPO, "no-such-rev", ["src/a.py"])),
+    ("read_files missing path", lambda: read_files(REPO, C2, ["src/nope.py"])),
+    ("changed_files bad rev", lambda: changed_files(REPO, C1, "no-such-rev")),
+    ("resolve_commit nonexistent dir", lambda: resolve_commit(FX / "no-such-dir", "HEAD")),
+]
+for name, fn in cases:
+    try:
+        result = fn()
+    except GitError as e:
+        print(f"{name}: GitError: {e}")
+    else:
+        print(f"FAIL {name}: no GitError, returned {result!r}")
+        sys.exit(1)
+print("PASS bullet 3")
+
+print("\nALL PROBES PASS")

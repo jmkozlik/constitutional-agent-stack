@@ -1,0 +1,8 @@
+# header comment
+
+
+HEADROOM = 1
+
+
+def target(x):
+    return x * 2

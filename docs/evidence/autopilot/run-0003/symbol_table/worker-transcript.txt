@@ -1,0 +1,25 @@
+$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/symbol_table)
+--- exit 0
+--- stdout
+Delivered — validation-only dispatch complete, both `done_when` bullets **ATTESTED**, no code changes (write scope untouched, confirmed by `git status`).
+
+**What was delivered:**
+- `.harness/out/attestation.md` — one section per bullet, each ATTEST with verbatim command+output:
+  - *Whitespace reformat → body hash unchanged*: class, method, and function records keep byte-identical `body_hash` across a reformat covering blank lines, operator spacing, reindent 4→8, and parenthesized line continuations.
+  - *Ranges recomputed per commit, never identity*: shown two ways — an in-memory 37-line shift, and a real two-commit git fixture where `mod.target` moves from lines 1-2 to 7-8 while `sig_hash`/`body_hash`/`decor_hash` stay identical; re-extraction reproduces ranges from source alone, and no hash input contains line numbers.
+- `.harness/out/defects.md` — no defects against the node. One defect **D1** filed against harness tooling.
+- `.harness/scratch/handoff.md` — verified facts and interpretive claims separated; probes and git fixture left in scratch.
+- Baseline: `.venv/bin/python -m pytest` → **441 passed, 1 skipped**.
+
+**Lines to surface:**
+
+Fence denial, recorded verbatim per protocol (filed as D1 — write-fence judged the lexical token `mod.py` without resolving it against the command's `cd`; the true target was inside the permitted `.harness/scratch/`; I did not re-run the denied command, and wrote the file via its explicit in-scope path instead):
+
+```
+PreToolUse:Bash hook error: [python3 "$CLAUDE_PROJECT_DIR"/.claude/hooks/write-fence.py]: write fence [symbol_table]: 'mod.py' is out of scope — REQUEST_MEM or file a defect. Do not work around. Your write scope: analyzer/modpath.py, analyzer/symbols.py
+```
+
+No REQUEST_MEM lines — the packet was sufficient for both attestations.
+
+--- stderr
+

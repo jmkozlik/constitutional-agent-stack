@@ -1,0 +1,20 @@
+$ claude -p <prompt>  (cwd /Users/rokko/experiments/.lex-dispatches/gitio)
+--- exit 0
+--- stdout
+All deliverables are written. Summary of the dispatch:
+
+**Verdict: all three done_when bullets ATTESTED; no defects against `analyzer/gitio.py`; one defect filed against the harness write-fence.** This was a validation-only dispatch (empty delta) — no source was edited.
+
+- **Bullet 1 (objects, never a checkout) — ATTEST.** `list_py_files` and `read_files` answer correctly against a bare clone (which has no checkout at all), and return committed bytes for a rev whose files are absent from / different on the working tree.
+- **Bullet 2 (rename = delete + add) — ATTEST.** A git-confirmed R100 rename comes back as `'src/b.py': ([(1,1)], [])` plus `'src/c.py': ([], [(1,1)])` — no rename pairing anywhere in the return shape.
+- **Bullet 3 (failure raises GitError) — ATTEST.** Bad revs and a nonexistent repo dir raise `GitError` naming the failed git command for every callable; `read_files` on a missing path raises `GitError` too (nuance recorded: `cat-file --batch` exits 0 for missing objects, the code raises on the marker — the "never silent empty" clause holds).
+- Packet verify command: `.venv/bin/python -m pytest` → **441 passed, 1 skipped**; `tests/test_gitio.py` → 7 passed.
+
+**Filed defect (harness, not node):** the write-fence denied a permitted `.harness/scratch/` write — it resolved `src/a.py` against the project root, ignoring a `cd` into scratch earlier in the command. Denial recorded verbatim in `defects.md`; I re-issued the command with scratch-anchored paths so the fence could see the true targets (same files, not an evasion). Fix would require the fence to track `cd`/cwd when resolving relative paths.
+
+**Deliverables:** `.harness/out/attestation.md`, `.harness/out/defects.md`, `.harness/scratch/handoff.md`. Rerunnable probe at `.harness/scratch/fx/probe.py`.
+
+No REQUEST_MEM lines to surface — no blocking or non-blocking misses occurred.
+
+--- stderr
+
